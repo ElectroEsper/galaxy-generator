@@ -34,7 +34,9 @@ enum PlanetClass {
 	NEPTUNIAN,
 	HYPER_DENSE_CRONIAN,
 	GLACIAL_LOCKED,
-	CRYO_DENSE_TITANIAN
+	CRYO_DENSE_TITANIAN,
+	SCORCHED_GREENHOUSE,
+	DENSE_NEPTUNIAN
 }
 
 var distance : float
@@ -178,37 +180,65 @@ func get_initial_rotation_value() -> float :
 		_:
 			return 0.0
 
-func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass: #God help me...
-	# Asteroid	
-	if type == BaseType.ASTEROID_BELT:
+func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass:
+	return classify_planet(
+		type, volcanic_level, temperature_raw, temperature_gh,
+		has_water_or_ice, is_tidallock, has_magnetic, is_tectonic
+	)
+
+
+static func classify_planet(
+	base_type : BaseType,
+	volcanic_level : VolcanismLevel,
+	temperature_raw : float,
+	temperature_gh : float,
+	has_water_or_ice : bool,
+	is_tidallock : bool,
+	has_magnetic : bool,
+	is_tectonic : bool
+) -> PlanetClass:
+	# Asteroid
+	if base_type == BaseType.ASTEROID_BELT:
 		return PlanetClass.ASTEROID_RING
-	
+
 	# Gas Giants
-	if type == BaseType.GAS_GIANT:
+	if base_type == BaseType.GAS_GIANT:
 		if temperature_raw >= 500:
 			return PlanetClass.PEGASEAN
 		elif temperature_gh >= 120:
 			return PlanetClass.HYPER_DENSE_CRONIAN
 		else:
 			return PlanetClass.JOVIAN
-	
-	# Ice Giants
-	if type == BaseType.ICE_GIANT:
+
+	# Ice Giants (now symmetric with Gas Giants: raw-temp tier, then a
+	# GH-driven dense tier using the same 120 threshold, then baseline)
+	if base_type == BaseType.ICE_GIANT:
 		if temperature_raw >= 341:
 			return PlanetClass.SULTRY_NEPTUNIAN
+		elif temperature_gh >= 120:
+			return PlanetClass.DENSE_NEPTUNIAN  # NEW
 		else:
 			return PlanetClass.NEPTUNIAN
-	
+
 	# Rocky - Infernal extremes
 	if temperature_raw >= 500:
 		if temperature_gh >= 150 or volcanic_level == VolcanismLevel.HYPER_ACTIVE:
 			return PlanetClass.VENERIAN
-		if temperature_gh >= 50 and has_magnetic:
-			return PlanetClass.CORROSIVE_MAGMA_TRAP
-		
+		if temperature_gh >= 50:
+			if has_magnetic:
+				return PlanetClass.CORROSIVE_MAGMA_TRAP
+			else:
+				return PlanetClass.SCORCHED_GREENHOUSE
 		return PlanetClass.HERMIAN
-		
-	# Rocky - Anomalous volatile-starved
+
+	# Rocky - Cryogenic (checked before the dry catch-all: water-agnostic by
+	# design, since below the frost point the only real variable is core heat)
+	if temperature_raw < 100:
+		if volcanic_level in [VolcanismLevel.RESTRAINED, VolcanismLevel.ACTIVE, VolcanismLevel.HYPER_ACTIVE]:
+			return PlanetClass.SUB_GLACIAL
+		return PlanetClass.PLUTONIAN
+
+	# Rocky - Anomalous volatile-starved (Frigid/Temperate/Torrid dry worlds only)
 	if not has_water_or_ice:
 		if volcanic_level == VolcanismLevel.HYPER_ACTIVE and temperature_raw < 500:
 			return PlanetClass.RADIOACTIVE_OBSIDIAN
@@ -216,9 +246,8 @@ func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass: #God help
 			return PlanetClass.SUPER_DRY_IRON_BALL
 		if temperature_raw < 341:
 			return PlanetClass.ANOMALOUS_DRY_HUSK
-		
 		return PlanetClass.CALCINATED_WASTELAND
-		
+
 	# Rocky - Torrid
 	if temperature_raw >= 341 and temperature_raw < 500:
 		if has_water_or_ice and temperature_gh >= 80:
@@ -226,13 +255,7 @@ func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass: #God help
 		if volcanic_level == VolcanismLevel.HYPER_ACTIVE or temperature_gh >= 30:
 			return PlanetClass.PYROCLASTIC_SMOLDER
 		return PlanetClass.CALCINATED_WASTELAND
-		
-	# Rocky - Cryogenic
-	if temperature_raw < 100:
-		if volcanic_level in [VolcanismLevel.RESTRAINED, VolcanismLevel.ACTIVE, VolcanismLevel.HYPER_ACTIVE]:
-			return PlanetClass.SUB_GLACIAL
-		return PlanetClass.PLUTONIAN
-	
+
 	# Frigid
 	if temperature_raw >= 100 and temperature_raw <= 249:
 		if is_tidallock:
@@ -243,10 +266,11 @@ func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass: #God help
 			return PlanetClass.CRYO_DENSE_TITANIAN
 		if is_tectonic or volcanic_level in [VolcanismLevel.ACTIVE, VolcanismLevel.HYPER_ACTIVE]:
 			return PlanetClass.BOREAL_ALPINE
-		
 		return PlanetClass.GLACIAL_TAIGA
-	
+
 	# Temperate
+	if not has_water_or_ice:
+		return PlanetClass.ANOMALOUS_DRY_HUSK
 	if is_tidallock:
 		return PlanetClass.TWILIGHT
 	if not has_magnetic:
@@ -264,5 +288,6 @@ func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass: #God help
 			return PlanetClass.SAVANNA
 		VolcanismLevel.ACTIVE, VolcanismLevel.HYPER_ACTIVE:
 			return PlanetClass.GARDEN
-	
+
+	assert(false, "Unhandled VolcanismLevel in Temperate branch: %s" % volcanic_level)
 	return PlanetClass.GARDEN
