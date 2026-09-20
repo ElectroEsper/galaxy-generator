@@ -8,7 +8,7 @@ enum PlanetClass {
 	HERMIAN, 
 	VENERIAN, 
 	CORROSIVE_MAGMA_TRAP, 
-	CALCINATED_WASTELAND,
+	SCORCHED_WASTELAND,
 	VAPOR_TELLURIC,
 	PYROCLASTIC_SMOLDER,
 	GARDEN,
@@ -24,9 +24,9 @@ enum PlanetClass {
 	CRYO_VOLCANIC_FISSURE,
 	SUB_GLACIAL,
 	PLUTONIAN,
-	RADIOACTIVE_OBSIDIAN,
+	MOLTEN_OBSIDIAN,
 	SUPER_DRY_IRON_BALL,
-	ANOMALOUS_DRY_HUSK,
+	DRY_HUSK,
 	ASTEROID_RING,
 	PEGASEAN,
 	JOVIAN,
@@ -44,6 +44,8 @@ var type : BaseType
 var mass : float
 var radius : float
 var moon_count : int
+var has_water : bool
+var has_ice : bool
 var has_water_or_ice : bool
 
 var is_tectonic : bool
@@ -103,8 +105,11 @@ func init_as_planet(star : Star):
 	var can_water : bool  = true if temp_eq > 188 and temp_eq < 350 else false
 	var can_ice : bool  = temp_eq < 273
 	var can_ice_or_water : bool  = can_ice or can_water
-	has_water_or_ice = can_ice_or_water
 	
+	var formation_budget : float = clampf(0.3 + 0.5 / (1 + exp(-8 * ( (distance/star.frostline) - 1))), 0.0, 1.0)
+	var oxygen_factor : float = min(1.0, star.metallicity / star.oxygen_threshold)
+	var water_budget : float = formation_budget * oxygen_factor
+		
 	# Geological and Greenhouse related variables... That's alot of math... Please help o_O
 	var core_comp : float = randf_range(0.8, 1.2) * 1 + (-1.5 + star.metallicity)
 	var area_to_vol : float = 3 / radius
@@ -128,10 +133,22 @@ func init_as_planet(star : Star):
 	
 	# Athmosphere stuff...
 	var athmosphere_retention_index = 1 - (((1 - (mass / (radius * (temp_eq/288)))) / 4.5) * star.age) + regulation_coef
+	
+	has_ice = can_ice and (randf() <= water_budget)
+	has_water = can_water and (randf() <= water_budget * clampf(athmosphere_retention_index, 0.0, 1.0))
+	has_water_or_ice = has_ice or has_water
+	
+	# If we have no water, and this planet could have some, let's redo the regulation_coeff, to get a proper-value)
+	if (not has_water and can_water):
+		regulation_coef = get_regulation_coef(has_water, is_tectonic, outgassing_factor)
+		greenhouse_volcanic_factor = outgassing_factor * regulation_coef * (1 + age_bonus) * condensation_gate
+		athmosphere_retention_index = 1 - (((1 - (mass / (radius * (temp_eq/288)))) / 4.5) * star.age) + regulation_coef
+	
 	var greenhouse_mult = (1 + greenhouse_volcanic_factor + clampf(athmosphere_retention_index,0.0,1.0))**(1.0/6.0)
 	temperature_raw = roundi(temp_eq * pow( 1 + greenhouse_volcanic_factor + clampf(athmosphere_retention_index,0.0,1.0) ,1.0/6.0))
 	temperature_gh = roundi(temperature_raw - temp_eq)
 	planet_class = get_planet_class(volcanism)
+	temperature = get_temperature_class(temperature_raw)
 	print(PlanetClass.find_key(planet_class), " @ ", temperature_raw, "K (+", temperature_gh, ") [", VolcanismLevel.find_key(volcanism), " / ", is_tectonic, " / ", is_tidallock, "]" )
 	
 func get_volcanism_level(has_volcanism : bool, index : float) -> VolcanismLevel:
@@ -162,10 +179,10 @@ func get_outgassing_factor(has_volcanism : bool, index : float, star : Star) -> 
 		return 0.3
 	else:
 		return 0.1
-func get_regulation_coef(can_water : bool, is_tectonic : bool, outgassing_factor : float) -> float:
-	if can_water and is_tectonic:
+func get_regulation_coef(water : bool, is_tectonic : bool, outgassing_factor : float) -> float:
+	if water and is_tectonic:
 		return outgassing_factor * 0.1
-	elif can_water:
+	elif water:
 		return outgassing_factor * 0.5
 	else:
 		return outgassing_factor * 1.5
@@ -186,6 +203,17 @@ func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass:
 		has_water_or_ice, is_tidallock, has_magnetic, is_tectonic
 	)
 
+func get_temperature_class(k : int) -> TempLevel:
+	if k >= 500:
+		return TempLevel.INFERNAL
+	elif k >= 341:
+		return TempLevel.TORRID
+	elif k >= 250:
+		return TempLevel.TEMPERATE
+	elif k >= 100:
+		return TempLevel.FRIGID
+	else:
+		return TempLevel.CRYOGENIC
 
 static func classify_planet(
 	base_type : BaseType,
@@ -241,12 +269,12 @@ static func classify_planet(
 	# Rocky - Anomalous volatile-starved (Frigid/Temperate/Torrid dry worlds only)
 	if not has_water_or_ice:
 		if volcanic_level == VolcanismLevel.HYPER_ACTIVE and temperature_raw < 500:
-			return PlanetClass.RADIOACTIVE_OBSIDIAN
+			return PlanetClass.MOLTEN_OBSIDIAN
 		if volcanic_level == VolcanismLevel.DEAD and temperature_gh <= 1:
 			return PlanetClass.SUPER_DRY_IRON_BALL
 		if temperature_raw < 341:
-			return PlanetClass.ANOMALOUS_DRY_HUSK
-		return PlanetClass.CALCINATED_WASTELAND
+			return PlanetClass.DRY_HUSK
+		return PlanetClass.SCORCHED_WASTELAND
 
 	# Rocky - Torrid
 	if temperature_raw >= 341 and temperature_raw < 500:
@@ -254,7 +282,7 @@ static func classify_planet(
 			return PlanetClass.VAPOR_TELLURIC
 		if volcanic_level == VolcanismLevel.HYPER_ACTIVE or temperature_gh >= 30:
 			return PlanetClass.PYROCLASTIC_SMOLDER
-		return PlanetClass.CALCINATED_WASTELAND
+		return PlanetClass.SCORCHED_WASTELAND
 
 	# Frigid
 	if temperature_raw >= 100 and temperature_raw <= 249:
@@ -270,7 +298,7 @@ static func classify_planet(
 
 	# Temperate
 	if not has_water_or_ice:
-		return PlanetClass.ANOMALOUS_DRY_HUSK
+		return PlanetClass.DRY_HUSK
 	if is_tidallock:
 		return PlanetClass.TWILIGHT
 	if not has_magnetic:

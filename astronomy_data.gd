@@ -82,5 +82,9 @@ const DATABASE : Dictionary = {
 			StarClass.K : 0.3337703011,
 			StarClass.M : 0.2536990917
 		}
+	},
+	Constants = {
+		base_oxygen_threshold = 0.5,
+		alpha_enhancement_coeff = 0.4
 	}
 }

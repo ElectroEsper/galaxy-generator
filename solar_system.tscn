@@ -4,5 +4,4 @@
 
 [node name="solar_system" type="Node" unique_id=1443177272]
 script = ExtResource("1_hbvo3")
-star_class = 4
 pop = 2
