@@ -150,7 +150,14 @@ func init_as_planet(star : Star):
 	planet_class = get_planet_class(volcanism)
 	temperature = get_temperature_class(temperature_raw)
 	print(PlanetClass.find_key(planet_class), " @ ", temperature_raw, "K (+", temperature_gh, ") [", VolcanismLevel.find_key(volcanism), " / ", is_tectonic, " / ", is_tidallock, "]" )
-	
+	add_to_universe_data()
+
+func add_to_universe_data() :
+	var data : Dictionary = Universe.data.planets
+	if data.has(PlanetClass.find_key(planet_class)):
+		data[PlanetClass.find_key(planet_class)] += 1
+	else:
+		data[PlanetClass.find_key(planet_class)] = 1
 func get_volcanism_level(has_volcanism : bool, index : float) -> VolcanismLevel:
 	if not type == BaseType.NORMAL:
 		return VolcanismLevel.NONE
@@ -196,13 +203,11 @@ func get_initial_rotation_value() -> float :
 			return 10.5
 		_:
 			return 0.0
-
 func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass:
 	return classify_planet(
 		type, volcanic_level, temperature_raw, temperature_gh,
 		has_water_or_ice, is_tidallock, has_magnetic, is_tectonic
 	)
-
 func get_temperature_class(k : int) -> TempLevel:
 	if k >= 500:
 		return TempLevel.INFERNAL

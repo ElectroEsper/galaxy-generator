@@ -1,7 +1,0 @@
-[gd_scene format=3 uid="uid://vd3avofyinmx"]
-
-[ext_resource type="PackedScene" uid="uid://dcdxxyyjlhl4u" path="res://solar_system.tscn" id="1_ksisf"]
-
-[node name="universe" type="Node" unique_id=742143868]
-
-[node name="solar_system" parent="." unique_id=1443177272 instance=ExtResource("1_ksisf")]

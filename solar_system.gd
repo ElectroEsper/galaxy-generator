@@ -25,16 +25,13 @@ var orbit_slot : Array[Planet]
 
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
-	seed(123)
+	pass # Replace with function body.
+
+func init_solar_system():
+	pop = randi_range(0,3) as AstronomyData.StarPop
 	set_star_specs_debug()
 	pre_set_orbit_slots()
 	set_orbit_slots()
-	pass # Replace with function body.
-
-
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
-	pass
 
 func pre_set_orbit_slots():
 	var current_distance = min_orbit * randf_range(1.4, 2.0)
@@ -69,6 +66,14 @@ func set_star_specs_debug():
 	min_orbit = 0.1 * sqrt(l)
 	max_orbit = 73 * sqrt(mass)
 	oxygen_threshold = AstronomyData.DATABASE.Constants.base_oxygen_threshold / (1.0 + AstronomyData.DATABASE.Constants.alpha_enhancement_coeff * (age/ 10))
+	add_to_universe_data()
+	
+func add_to_universe_data() :
+	var data : Dictionary = Universe.data.stars
+	if data.has(AstronomyData.StarClass.find_key(star_class)):
+		data[AstronomyData.StarClass.find_key(star_class)] += 1
+	else:
+		data[AstronomyData.StarClass.find_key(star_class)] = 1
 
 func get_valid_star_classes(pop : AstronomyData.StarPop) -> Array:
 	var pop_metallicity = AstronomyData.DATABASE.StarPopulation[pop].metalicity
