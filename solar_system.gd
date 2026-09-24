@@ -13,6 +13,7 @@ var metallicity : float
 var hz_inner : float
 var hz_outer : float
 var frostline : float
+var volatileline : float
 var min_orbit : float
 var max_orbit : float
 var oxygen_threshold : float
@@ -63,6 +64,7 @@ func set_star_specs_debug():
 	hz_inner = sqrt(l / 1.1)
 	hz_outer = sqrt(l / 0.53)
 	frostline = 4.85 * sqrt(l)
+	volatileline = AstronomyData.DATABASE.Constants.volatile_line_multiplier * frostline
 	min_orbit = 0.1 * sqrt(l)
 	max_orbit = 73 * sqrt(mass)
 	oxygen_threshold = AstronomyData.DATABASE.Constants.base_oxygen_threshold / (1.0 + AstronomyData.DATABASE.Constants.alpha_enhancement_coeff * (age/ 10))

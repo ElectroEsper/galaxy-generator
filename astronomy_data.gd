@@ -85,6 +85,10 @@ const DATABASE : Dictionary = {
 	},
 	Constants = {
 		base_oxygen_threshold = 0.5,
-		alpha_enhancement_coeff = 0.4
+		alpha_enhancement_coeff = 0.4,
+		life_possible_threshold = 0.7,
+		biosphere_mature_threshold = 3.5,
+		base_volatile_threshold = 0.6,
+		volatile_line_multiplier = 2.0
 	}
 }

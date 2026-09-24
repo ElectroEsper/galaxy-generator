@@ -14,6 +14,8 @@ func _ready() -> void:
 		ss.init_solar_system()
 		add_child(ss)
 		star_cnt += 1
+	
+	#Universe.print_universe_stats(Universe.data)
 
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
