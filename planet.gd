@@ -9,6 +9,11 @@ enum PlanetClass {
 	# Special
 	ASTEROID_RING,
 
+	# Young systems (age-gated)
+	PROTOPLANETARY_CORE,
+	PROTO_GIANT,
+	DEBRIS_DISK_REMNANT,
+
 	# Gas Giants
 	PEGASEAN,
 	HYPER_DENSE_CRONIAN,
@@ -227,10 +232,19 @@ func init_as_planet(star : Star):
 	var greenhouse_mult = (1 + greenhouse_volcanic_factor + clampf(athmosphere_retention_index,0.0,1.0))**(1.0/6.0)
 	temperature_raw = roundi(temp_eq * pow( 1 + greenhouse_volcanic_factor + clampf(athmosphere_retention_index,0.0,1.0) ,1.0/6.0))
 	temperature_gh = roundi(temperature_raw - temp_eq)
-	planet_class = get_planet_class(volcanism)
+	if star_age_is_protoplanetary(star):
+		var C = AstronomyData.DATABASE.Constants
+		var r_scale : float = clampf((distance - star.min_orbit) / max(star.max_orbit - star.min_orbit, 0.0001), 0.0, 1.0)
+		var accretion : float = C.protoplanet_temp_min + (C.protoplanet_temp_max - C.protoplanet_temp_min) * exp(-C.protoplanet_falloff_rate * r_scale)
+		temperature_raw = roundi(accretion + temp_eq * C.protoplanet_insolation_weight)
+		temperature_gh = 0
+	planet_class = get_planet_class(volcanism, star.age)
 	temperature = get_temperature_class(temperature_raw)
 	print(PlanetClass.find_key(planet_class), " @ ", temperature_raw, "K (+", temperature_gh, ") [", VolcanismLevel.find_key(volcanism), " / ", is_tectonic, " / ", is_tidallock, "]" )
 	add_to_universe_data()
+
+func star_age_is_protoplanetary(star : Star) -> bool:
+	return star.age < AstronomyData.DATABASE.Constants.protoplanet_age_threshold
 
 func add_to_universe_data() :
 	var data : Dictionary = Universe.data.planets
@@ -283,10 +297,10 @@ func get_initial_rotation_value() -> float :
 			return 10.5
 		_:
 			return 0.0
-func get_planet_class(volcanic_level : VolcanismLevel) -> PlanetClass:
+func get_planet_class(volcanic_level : VolcanismLevel, star_age : float) -> PlanetClass:
 	return classify_planet(
 		type, volcanic_level, temperature_raw, temperature_gh,
-		has_water_or_ice, has_volatile, has_volatile_ice, is_tidallock, has_magnetic, is_tectonic, life_stage
+		has_water_or_ice, has_volatile, has_volatile_ice, is_tidallock, has_magnetic, is_tectonic, life_stage, star_age
 	)
 func get_temperature_class(k : int) -> TempLevel:
 	if k >= 500:
@@ -311,8 +325,19 @@ static func classify_planet(
 	is_tidallock : bool,
 	has_magnetic : bool,
 	is_tectonic : bool,
-	life_stage : LifeStage
+	life_stage : LifeStage,
+	star_age : float = 99.0
 ) -> PlanetClass:
+	# Protoplanets: system too young to have settled
+	if star_age < AstronomyData.DATABASE.Constants.protoplanet_age_threshold:
+		match base_type:
+			BaseType.ASTEROID_BELT:
+				return PlanetClass.DEBRIS_DISK_REMNANT
+			BaseType.GAS_GIANT, BaseType.ICE_GIANT:
+				return PlanetClass.PROTO_GIANT
+			_:
+				return PlanetClass.PROTOPLANETARY_CORE
+
 	# Asteroid
 	if base_type == BaseType.ASTEROID_BELT:
 		return PlanetClass.ASTEROID_RING
