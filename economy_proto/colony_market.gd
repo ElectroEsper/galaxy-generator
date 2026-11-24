@@ -17,6 +17,7 @@ var capacity : Dictionary = {}     # units/tick that facilities here can add, pe
 var max_pop : float = 400.0        # habitability ceiling (from the planet in the real game)
 var facility_count : int = 0       # facilities built here (kept in sync by Corporation)
 var requests : Array = []          # input requests posted by producers this tick (served by Freight)
+var growth_enabled : bool = true   # births + maintenance demand (false = PR #8 baseline behaviour)
 var jobs : float = 0.0             # facilities operating here (set by the sim each tick)
 var local_cash : float = 0.0       # profit accrued by the colony's informal local business
 var planet_label : String = ""       # planet class, shown by the view
@@ -37,6 +38,10 @@ func _init(n : String, p : float, rich : Dictionary, ceiling : float = 400.0) ->
 const USE_FLOOR := 0.02            # tiny, so a 100-colony map doesn't invent phantom demand
 const BASE_SELF_POP := 30.0
 const JOBS_PER_FACILITY := 8.0
+const MAINT_METAL_PER_POP := 0.004
+const MAINT_PARTS_PER_FACILITY := 0.08
+const BIRTH_RATE := 0.008
+const DEATH_RATE := 0.02
 ## Subsistence: every colony feeds and equips its baseline population without any corporation.
 const SUBSISTENCE_FOOD := BASE_SELF_POP * 0.05
 const SUBSISTENCE_PARTS := BASE_SELF_POP * 0.012
@@ -56,10 +61,16 @@ func target_pop() -> float:
 	return minf(BASE_SELF_POP + jobs * JOBS_PER_FACILITY, max_pop)
 
 func pop_demand(g : int) -> float:
+	var d : float = 0.0
 	match g:
-		Goods.FOOD: return pop * 0.05
-		Goods.PARTS: return pop * 0.012
-	return 0.0
+		Goods.FOOD: d = pop * 0.05
+		Goods.PARTS: d = pop * 0.012
+	if growth_enabled:
+		# Maintenance demand: buildings and facilities wear out and need Metal / Parts.
+		match g:
+			Goods.METAL: d += pop * MAINT_METAL_PER_POP
+			Goods.PARTS: d += facility_count * MAINT_PARTS_PER_FACILITY
+	return d
 
 func note_use(g : int, amount : float) -> void:
 	use_this_tick[g] = use_this_tick.get(g, 0.0) + amount
@@ -73,7 +84,15 @@ func tick() -> void:
 			stock[g] += q
 			local_cash += q * (price[g] - Goods.RAW_COST[g])
 	# Abstract migration: population drifts toward what the local economy can employ.
-	pop += (target_pop() - pop) * 0.02
+	if growth_enabled:
+		# Births need food and room; starvation kills; jobs only ever attract migrants (no forced shrink).
+		var need : float = maxf(pop_demand(Goods.FOOD), 0.001)
+		var fed : float = clampf(stock[Goods.FOOD] / (need * 3.0), 0.0, 1.0)
+		pop += pop * BIRTH_RATE * fed * (1.0 - pop / max_pop) - pop * DEATH_RATE * (1.0 - fed)
+		pop += maxf(0.0, target_pop() - pop) * 0.02
+		pop = clampf(pop, 5.0, max_pop)
+	else:
+		pop += (target_pop() - pop) * 0.02
 	for g in Goods.ALL:
 		var take : float = minf(stock[g], pop_demand(g))
 		stock[g] -= take

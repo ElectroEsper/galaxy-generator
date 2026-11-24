@@ -20,6 +20,7 @@ var tick_count : int = 0
 @export var galaxy_colonies : int = 10
 @export var all_planets : bool = false     # true: every generated planet is a colony (galaxy_colonies = how many)
 var max_corps : int = 12
+var growth_enabled : bool = true
 const MAX_FREIGHT_CORPS := 4
 
 func _ready() -> void:
@@ -39,6 +40,8 @@ func setup() -> void:
 		markets = GalaxyColonies.generate_all(galaxy_colonies) if all_planets else GalaxyColonies.generate(galaxy_stars, galaxy_colonies)
 	else:
 		_setup_handmade()
+	for c in markets:
+		c.growth_enabled = growth_enabled
 	_setup_corps()
 
 func _setup_corps() -> void:
@@ -172,3 +175,29 @@ func _has_extraction_site(g : int) -> bool:
 		if c.richness.get(g, 0.0) > 0.0 and c.facility_slots_free() > 0:
 			return true
 	return false
+
+## One row of time-series metrics (see METRIC_HEADER).
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions"
+func metrics_row() -> String:
+	var pop : float = 0.0
+	var jobs_n : int = 0
+	var short_n : int = 0
+	var avg : Dictionary = {}
+	for g in Goods.ALL:
+		avg[g] = 0.0
+	for c in markets:
+		pop += c.pop
+		if c.jobs > 0.0:
+			jobs_n += 1
+		if (c.price[Goods.FOOD] + c.price[Goods.PARTS]) / (2.0 * ColonyMarket.BASE_PRICE) > 2.0:
+			short_n += 1
+		for g in Goods.ALL:
+			avg[g] += c.price[g] / markets.size()
+	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0
+	for k in corps:
+		match k.kind:
+			Corporation.Kind.EXTRACTOR: ex += 1
+			Corporation.Kind.PRODUCER: pr += 1
+			Corporation.Kind.FREIGHT: fr += 1
+		fac += k.facilities.size(); ships += k.ships
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions]
