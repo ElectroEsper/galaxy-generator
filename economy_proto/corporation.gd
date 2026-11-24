@@ -36,9 +36,16 @@ var broke_ticks : int = 0
 var idle_ticks : int = 0
 var utilisation : float = 0.0
 var moved : float = 0.0
+var last_move : Dictionary = {}   # most recent shipment this tick (for the visual layer)
 
 func _init(k : Kind, starting_cash : float) -> void:
 	kind = k; cash = starting_cash
+
+## A local business graduating into a corporation: first facility is at home.
+func seed_facility(c : ColonyMarket, g : int) -> void:
+	var f := Facility.new(c, g)
+	facilities.append(f)
+	c.capacity[g] += f.throughput()
 
 func is_dead() -> bool:
 	return broke_ticks >= INSOLVENT_AFTER or idle_ticks >= IDLE_AFTER
@@ -68,6 +75,9 @@ func _run_facilities() -> void:
 	for f in facilities:
 		var c : ColonyMarket = f.colony
 		if Goods.is_raw(f.good):
+			# Same discipline as producers: don't extract at a loss; idle until price recovers.
+			if _unit_margin(c, f.good) <= 0.0:
+				continue
 			var q : float = c.richness.get(f.good, 0.0)
 			c.stock[f.good] += q
 			cash += q * (c.price[f.good] - Goods.RAW_COST[f.good])
@@ -116,7 +126,10 @@ func _facility_margin(c : ColonyMarket, g : int) -> float:
 func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	for f in facilities.duplicate():
 		f.losing_ticks = f.losing_ticks + 1 if _facility_margin(f.colony, f.good) <= 0.0 else 0
-		if f.losing_ticks > CLOSE_AFTER:
+		# Only shed capacity that is genuinely surplus; otherwise a price dip makes every
+		# facility close in the same tick and the market swings straight into shortage.
+		var surplus : bool = _regional(markets, "capacity", f.good) > _regional(markets, "use", f.good) * HEADROOM
+		if f.losing_ticks > CLOSE_AFTER and surplus:
 			facilities.erase(f)
 			f.colony.capacity[f.good] -= f.throughput()
 	if cash < CAPEX * 1.5:
@@ -146,6 +159,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		best_c.capacity[best_g] += f.throughput()
 
 func _run_freight(markets : Array[ColonyMarket]) -> void:
+	last_move = {}
 	var best_m : float = 0.0
 	var best : Array = []
 	for g in Goods.ALL:
@@ -165,6 +179,7 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		a.stock[g] -= q; b.stock[g] += q
 		cash += q * best_m
 		moved = q
+		last_move = {"from": a, "to": b, "good": g, "qty": q}
 		utilisation = 0.8 * utilisation + 0.2 * (q / cap)
 	else:
 		utilisation = 0.8 * utilisation
