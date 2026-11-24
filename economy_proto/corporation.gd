@@ -40,6 +40,12 @@ var moved : float = 0.0
 func _init(k : Kind, starting_cash : float) -> void:
 	kind = k; cash = starting_cash
 
+## A local business graduating into a corporation: first facility is at home.
+func seed_facility(c : ColonyMarket, g : int) -> void:
+	var f := Facility.new(c, g)
+	facilities.append(f)
+	c.capacity[g] += f.throughput()
+
 func is_dead() -> bool:
 	return broke_ticks >= INSOLVENT_AFTER or idle_ticks >= IDLE_AFTER
 
