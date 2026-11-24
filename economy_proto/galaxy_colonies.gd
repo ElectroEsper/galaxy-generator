@@ -2,6 +2,9 @@ class_name GalaxyColonies
 extends RefCounted
 ## Bridge: generated stars/planets -> colonies for the economy prototype.
 
+## Experiment knob: multiplies Food (Edibles) richness when colonies are created.
+static var food_mult : float = 1.0
+
 const VIEW_CENTER := Vector2(576.0, 340.0)
 const VIEW_RADIUS := Vector2(470.0, 250.0)
 
@@ -42,7 +45,7 @@ static func _to_colony(p : Planet, star : Star, idx : int) -> ColonyMarket:
 	if ore >= 1.0:
 		rich[Goods.ORE] = ore / 5.0          # 0-10 richness -> 0-2 units/tick
 	if food >= 1.0:
-		rich[Goods.FOOD] = food / 5.0
+		rich[Goods.FOOD] = food / 5.0 * food_mult
 	var ceiling : float = clampf(120.0 + p.mass * 120.0 + 250.0 * p.life_stage, 120.0, 800.0)
 	var c := ColonyMarket.new("S%d" % idx, randf_range(40.0, 90.0), rich, ceiling)
 	c.position = VIEW_CENTER + star.map_position * VIEW_RADIUS
