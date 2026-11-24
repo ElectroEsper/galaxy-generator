@@ -112,3 +112,9 @@ The per-corporation fleet cap and `MAX_FREIGHT_CORPS` are gone; fleets now grow 
 600 ticks, 100 planets: population ~8,800 -> ~10,700, colonies with jobs 80 -> 99, Water price ~59 -> ~18 (water now reaches the hydroponics),
 Parts ~65 -> ~83 (more facilities to maintain), Food unchanged ~78. Still one Freight corporation, but its fleet grows by one ship every tick
 (591 by tick 600) without utilisation ever dropping: ship growth has no natural brake yet.
+
+## Long run (6,000 ticks, 100 planets)
+Figure: `docs/economy_results/fig10_long_run.png`; data `run_6000_capped.csv`, `run_6000_uncapped.csv`.
+Both settle by tick ~600 and stay flat for 5,400 more ticks: no collapse, no drift. Uncapped: pop ~11,000, 100/100 colonies with jobs, Water ~18.
+Capped (old main): pop ~8,500, 80 colonies with jobs after a dip to ~62 around tick 1,500, Water ~60 (shipping-limited).
+Parts and Food converge to ~75 in both runs. Uncapped fleet grows linearly to ~6,000 ships (needs a brake).
