@@ -15,6 +15,7 @@ var use : Dictionary = {}          # smoothed consumption rate per good
 var use_this_tick : Dictionary = {}
 var capacity : Dictionary = {}     # units/tick that facilities here can add, per good
 var max_pop : float = 400.0        # habitability ceiling (from the planet in the real game)
+var extraction : Dictionary = {}   # raw good -> output of corporate extraction facilities here (capped by richness)
 var facility_count : int = 0       # facilities built here (kept in sync by Corporation)
 var requests : Array = []          # input requests posted by producers this tick (served by Freight)
 var growth_enabled : bool = true   # births + maintenance demand (false = PR #8 baseline behaviour)
