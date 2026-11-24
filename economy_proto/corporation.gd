@@ -12,6 +12,10 @@ const SHIP_UPKEEP := 1.5
 const SHIP_COST := 0.4        # per unit per distance step
 const PAYBACK_HORIZON := 25.0 # ticks; expand only if CAPEX / margin < this
 const REQUEST_COVER := 4.0     # producers ask Freight to keep this many ticks of inputs on the shelf
+const MAX_LEVEL := 4
+const LEVEL_BONUS := 0.6        # each level adds this fraction of base output
+const UPKEEP_GROWTH := 0.25     # each level adds this fraction of base upkeep (jobs/slots stay the same)
+const EXTRACT_CAP_MULT := 40.0  # a site can't be extracted beyond richness x this per good, however upgraded
 const HEADROOM := 1.3          # build until capacity ~ HEADROOM x use
 const CLOSE_AFTER := 20       # consecutive losing ticks before closing a facility
 const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
@@ -19,14 +23,21 @@ const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
 class Facility:
 	var colony : ColonyMarket
 	var good : int
+	var level : int = 1
 	var losing_ticks : int = 0
 	func _init(c : ColonyMarket, g : int) -> void:
 		colony = c; good = g
-	## Units of `good` this facility can add per tick.
+	func level_mult() -> float:
+		return 1.0 + LEVEL_BONUS * (level - 1)
+	## Units of `good` this facility can add per tick at its current level.
 	func throughput() -> float:
-		if Goods.is_raw(good):
-			return colony.richness.get(good, 0.0)
-		return Goods.RECIPES[good]["yield"]
+		var base : float = colony.richness.get(good, 0.0) if Goods.is_raw(good) else Goods.RECIPES[good]["yield"]
+		return base * level_mult()
+	func upkeep() -> float:
+		return UPKEEP * (1.0 + UPKEEP_GROWTH * (level - 1))
+	## Cost to go from the current level to the next.
+	func upgrade_cost() -> float:
+		return CAPEX * (0.4 + 0.2 * level)
 
 var kind : Kind
 var cash : float
@@ -34,6 +45,7 @@ var facilities : Array[Facility] = []
 var ships : int = 0
 var broke_ticks : int = 0
 var idle_ticks : int = 0
+var upgrades : int = 0
 var utilisation : float = 0.0
 var moved : float = 0.0
 var last_moves : Array = []       # shipments made this tick (for the visual layer)
@@ -45,8 +57,19 @@ func _init(k : Kind, starting_cash : float) -> void:
 func seed_facility(c : ColonyMarket, g : int) -> void:
 	var f := Facility.new(c, g)
 	facilities.append(f)
-	c.capacity[g] += f.throughput()
+	_register(f, 1.0)
 	c.facility_count += 1
+
+## Keep colony capacity / extraction bookkeeping in sync with a facility's throughput.
+func _register(f : Facility, sign : float) -> void:
+	f.colony.capacity[f.good] += sign * f.throughput()
+	if Goods.is_raw(f.good):
+		f.colony.extraction[f.good] = f.colony.extraction.get(f.good, 0.0) + sign * f.throughput()
+
+func _site_room(c : ColonyMarket, g : int) -> float:
+	if not Goods.is_raw(g):
+		return INF
+	return c.richness.get(g, 0.0) * EXTRACT_CAP_MULT - c.extraction.get(g, 0.0)
 
 ## Idle and able to act on an opening (used so emergence doesn't found redundant corporations).
 func is_idle_funded() -> bool:
@@ -59,7 +82,7 @@ func is_dead() -> bool:
 ## Called when a corporation dissolves: its capacity leaves the market.
 func dissolve() -> void:
 	for f in facilities:
-		f.colony.capacity[f.good] -= f.throughput()
+		_register(f, -1.0)
 		f.colony.facility_count -= 1
 	facilities.clear()
 
@@ -85,18 +108,18 @@ func _run_facilities() -> void:
 			# Same discipline as producers: don't extract at a loss; idle until price recovers.
 			if _unit_margin(c, f.good) <= 0.0:
 				continue
-			var q : float = c.richness.get(f.good, 0.0)
+			var q : float = c.richness.get(f.good, 0.0) * f.level_mult()
 			c.stock[f.good] += q
 			cash += q * (c.price[f.good] - Goods.RAW_COST[f.good])
 		else:
 			var r : Dictionary = Goods.RECIPES[f.good]
 			# Operating discipline: don't buy inputs at a loss; idle until the margin recovers.
 			var idle : bool = _unit_margin(c, f.good) <= 0.0
-			var runs : float = 0.0 if idle else 1.0
+			var runs : float = 0.0 if idle else f.level_mult()
 			for i in r["in"]:
-				c.note_use(i, r["in"][i])           # desired input draw, even if the shelf is empty
+				c.note_use(i, r["in"][i] * f.level_mult())           # desired input draw, even if the shelf is empty
 				# Ask Freight for a few ticks' worth of inputs when the shelf runs low.
-				var want : float = r["in"][i] * REQUEST_COVER
+				var want : float = r["in"][i] * f.level_mult() * REQUEST_COVER
 				if c.stock[i] < want:
 					c.requests.append({"good": i, "qty": want - c.stock[i], "payer": self})
 				if not idle:
@@ -110,7 +133,8 @@ func _run_facilities() -> void:
 			var out : float = runs * r["yield"]
 			c.stock[f.good] += out
 			cash += out * c.price[f.good]
-	cash -= UPKEEP * facilities.size()
+	for f in facilities:
+		cash -= f.upkeep()
 
 func _unit_margin(c : ColonyMarket, g : int) -> float:
 	if Goods.is_raw(g):
@@ -130,52 +154,70 @@ func _input_availability(c : ColonyMarket, g : int) -> float:
 		a = minf(a, c.stock[i] / (c.use[i] * ColonyMarket.COVER_TICKS * 0.5))
 	return clampf(a, 0.05, 1.0)
 
-func _facility_margin(c : ColonyMarket, g : int) -> float:
-	var q : float = c.richness.get(g, 0.0) if Goods.is_raw(g) else 1.0
-	return _unit_margin(c, g) * q - UPKEEP
+func _facility_margin(f : Facility) -> float:
+	return _unit_margin(f.colony, f.good) * f.throughput() - f.upkeep()
 
 func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	for f in facilities.duplicate():
-		f.losing_ticks = f.losing_ticks + 1 if _facility_margin(f.colony, f.good) <= 0.0 else 0
+		f.losing_ticks = f.losing_ticks + 1 if _facility_margin(f) <= 0.0 else 0
 		# Only shed capacity that is genuinely surplus; otherwise a price dip makes every
 		# facility close in the same tick and the market swings straight into shortage.
 		var surplus : bool = _regional(markets, "capacity", f.good) > _regional(markets, "use", f.good) * HEADROOM
 		# Chronic losers close regardless: an idle facility still costs upkeep and maintenance demand.
 		if (f.losing_ticks > CLOSE_AFTER and surplus) or f.losing_ticks > CLOSE_AFTER * 4:
 			facilities.erase(f)
-			f.colony.capacity[f.good] -= f.throughput()
+			_register(f, -1.0)
 			f.colony.facility_count -= 1
-	if cash < CAPEX * 1.5:
+	if cash < CAPEX * 0.6:
 		return
-	var best_margin : float = 0.0
-	var best_c : ColonyMarket = null
-	var best_g : int = -1
+	# Candidate actions: build a new facility, or upgrade one of ours. Pick the best payback.
+	var best_payback : float = INF
+	var best_new_c : ColonyMarket = null
+	var best_new_g : int = -1
+	var best_up : Facility = null
 	for c in markets:
-		if c.facility_slots_free() <= 0:
-			continue
 		for g in Goods.ALL:
 			if (kind == Kind.EXTRACTOR) != Goods.is_raw(g):
 				continue
 			var q : float = c.richness.get(g, 0.0) if Goods.is_raw(g) else 1.0
-			if q <= 0.0:
+			if q <= 0.0 or _site_room(c, g) < q:
 				continue
 			# Demand-pull: only build where regional use exceeds regional capacity.
-			# (Freight links colonies, so supply/demand is judged region-wide.)
 			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
 			if unmet < q * 0.5:
 				continue
-			# Local absorption: output beyond what this colony's market can use only sells at crashed prices
-			# (export needs Freight), so favour sites whose own demand can take the output.
+			# Local absorption: output beyond what this colony's market can use only sells at crashed prices.
 			var absorb : float = minf(1.0, (c.use[g] * HEADROOM) / q)
 			var m : float = _unit_margin(c, g) * q * _input_availability(c, g) * absorb - UPKEEP
-			if m > best_margin:
-				best_margin = m; best_c = c; best_g = g
-	if best_c != null and CAPEX / best_margin < PAYBACK_HORIZON:
+			if c.facility_slots_free() > 0 and cash >= CAPEX * 1.5 and m > 0.0 and CAPEX / m < best_payback:
+				best_payback = CAPEX / m; best_new_c = c; best_new_g = g
+	for f in facilities:
+		if f.level >= MAX_LEVEL:
+			continue
+		var delta : float = f.throughput() / f.level_mult() * LEVEL_BONUS      # extra output from one more level
+		if _site_room(f.colony, f.good) < delta or cash < f.upgrade_cost():
+			continue
+		var unmet_u : float = _regional(markets, "use", f.good) * HEADROOM - _regional(markets, "capacity", f.good)
+		if unmet_u < delta * 0.5:
+			continue
+		var absorb_u : float = minf(1.0, (f.colony.use[f.good] * HEADROOM) / (f.throughput() + delta))
+		var gain : float = _unit_margin(f.colony, f.good) * delta * _input_availability(f.colony, f.good) * absorb_u - UPKEEP * UPKEEP_GROWTH
+		if gain > 0.0 and f.upgrade_cost() / gain < best_payback:
+			best_payback = f.upgrade_cost() / gain; best_up = f; best_new_c = null
+	if best_payback >= PAYBACK_HORIZON:
+		return
+	if best_up != null:
+		cash -= best_up.upgrade_cost()
+		_register(best_up, -1.0)
+		best_up.level += 1
+		_register(best_up, 1.0)
+		upgrades += 1
+	elif best_new_c != null:
 		cash -= CAPEX
-		var f := Facility.new(best_c, best_g)
+		var f := Facility.new(best_new_c, best_new_g)
 		facilities.append(f)
-		best_c.capacity[best_g] += f.throughput()
-		best_c.facility_count += 1
+		_register(f, 1.0)
+		best_new_c.facility_count += 1
 
 func _run_freight(markets : Array[ColonyMarket]) -> void:
 	last_moves = []
