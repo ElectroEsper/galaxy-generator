@@ -36,6 +36,7 @@ var broke_ticks : int = 0
 var idle_ticks : int = 0
 var utilisation : float = 0.0
 var moved : float = 0.0
+var last_move : Dictionary = {}   # most recent shipment this tick (for the visual layer)
 
 func _init(k : Kind, starting_cash : float) -> void:
 	kind = k; cash = starting_cash
@@ -158,6 +159,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		best_c.capacity[best_g] += f.throughput()
 
 func _run_freight(markets : Array[ColonyMarket]) -> void:
+	last_move = {}
 	var best_m : float = 0.0
 	var best : Array = []
 	for g in Goods.ALL:
@@ -177,6 +179,7 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		a.stock[g] -= q; b.stock[g] += q
 		cash += q * best_m
 		moved = q
+		last_move = {"from": a, "to": b, "good": g, "qty": q}
 		utilisation = 0.8 * utilisation + 0.2 * (q / cap)
 	else:
 		utilisation = 0.8 * utilisation

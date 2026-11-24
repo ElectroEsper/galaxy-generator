@@ -12,7 +12,23 @@ var attractions : int = 0
 var markets : Array[ColonyMarket] = []
 var corps : Array[Corporation] = []
 
+signal shipment_made(from_market : ColonyMarket, to_market : ColonyMarket, good : int, qty : float)
+
+var tick_count : int = 0
+@export var auto_run : bool = true
+
 func _ready() -> void:
+	setup()
+	if auto_run:
+		run_headless()
+
+func run_headless() -> void:
+	for t in TICKS:
+		step()
+		if t % PRINT_EVERY == PRINT_EVERY - 1:
+			_print_snapshot(t + 1)
+
+func setup() -> void:
 	seed(7)
 	markets = [
 		ColonyMarket.new("A", 80, {Goods.ORE: 2.0}, 600.0),
@@ -21,15 +37,18 @@ func _ready() -> void:
 		ColonyMarket.new("D", 40, {}, 150.0),
 		ColonyMarket.new("E", 50, {Goods.ORE: 1.0}, 250.0),
 	]
+	var spots : Array[Vector2] = [Vector2(140, 170), Vector2(470, 110), Vector2(330, 330), Vector2(640, 300), Vector2(150, 440)]
+	for i in markets.size():
+		markets[i].position = spots[i]
 	corps = [
 		Corporation.new(Corporation.Kind.EXTRACTOR, 300.0),
 		Corporation.new(Corporation.Kind.PRODUCER, 300.0),
 		Corporation.new(Corporation.Kind.FREIGHT, 300.0),
 	]
-	for t in TICKS:
-		_tick(t)
-		if t % PRINT_EVERY == PRINT_EVERY - 1:
-			_print_snapshot(t + 1)
+
+func step() -> void:
+	_tick(tick_count)
+	tick_count += 1
 
 func _tick(t : int) -> void:
 	for c in markets:
@@ -39,6 +58,9 @@ func _tick(t : int) -> void:
 			f.colony.jobs += 1.0
 	for k in corps:
 		k.run(markets)
+		if not k.last_move.is_empty():
+			var m : Dictionary = k.last_move
+			shipment_made.emit(m["from"], m["to"], m["good"], m["qty"])
 	for c in markets:
 		c.tick()
 		if t > 20 and corps.size() < MAX_CORPS:
