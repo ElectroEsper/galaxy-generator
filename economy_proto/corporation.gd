@@ -191,4 +191,5 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		ships -= 1
 
 func _dist(a : ColonyMarket, b : ColonyMarket, markets : Array[ColonyMarket]) -> float:
-	return 1.0 + absf(markets.find(a) - markets.find(b)) * 0.5
+	# Map-space distance (px) -> lane cost units; keeps the hand-made map at roughly 1.5-3.
+	return 1.0 + a.position.distance_to(b.position) / 200.0

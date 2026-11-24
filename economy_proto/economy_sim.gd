@@ -16,6 +16,9 @@ signal shipment_made(from_market : ColonyMarket, to_market : ColonyMarket, good 
 
 var tick_count : int = 0
 @export var auto_run : bool = true
+@export var use_galaxy : bool = false   # true: colonies come from generated stars/planets
+@export var galaxy_stars : int = 120
+@export var galaxy_colonies : int = 10
 
 func _ready() -> void:
 	setup()
@@ -30,6 +33,20 @@ func run_headless() -> void:
 
 func setup() -> void:
 	seed(7)
+	if use_galaxy:
+		markets = GalaxyColonies.generate(galaxy_stars, galaxy_colonies)
+	else:
+		_setup_handmade()
+	_setup_corps()
+
+func _setup_corps() -> void:
+	corps = [
+		Corporation.new(Corporation.Kind.EXTRACTOR, 300.0),
+		Corporation.new(Corporation.Kind.PRODUCER, 300.0),
+		Corporation.new(Corporation.Kind.FREIGHT, 300.0),
+	]
+
+func _setup_handmade() -> void:
 	markets = [
 		ColonyMarket.new("A", 80, {Goods.ORE: 2.0}, 600.0),
 		ColonyMarket.new("B", 60, {Goods.FOOD: 2.0}, 400.0),
@@ -40,11 +57,6 @@ func setup() -> void:
 	var spots : Array[Vector2] = [Vector2(140, 170), Vector2(470, 110), Vector2(330, 330), Vector2(640, 300), Vector2(150, 440)]
 	for i in markets.size():
 		markets[i].position = spots[i]
-	corps = [
-		Corporation.new(Corporation.Kind.EXTRACTOR, 300.0),
-		Corporation.new(Corporation.Kind.PRODUCER, 300.0),
-		Corporation.new(Corporation.Kind.FREIGHT, 300.0),
-	]
 
 func step() -> void:
 	_tick(tick_count)
