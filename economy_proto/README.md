@@ -38,3 +38,20 @@ The headless runner (`run_headless.gd`) still uses the hand-made 5-colony map un
 Findings from the first galaxy run:
 - Typical metallicity gives low Ore richness (x0.2-0.4) and rich Food, so Producers starve and Parts sit at the price cap -> most colonies show red.
 - Planet generation marks some Steam Worlds as having life (life stage uses water but not the final greenhouse temperature) - worth gating.
+
+## 100-planet test (`run_headless_100.gd`)
+Every generated planet (rocky, giant, belt) is a colony (`GalaxyColonies.generate_all`). Result after the scale fixes below: it runs
+without crashing in a few seconds, but the economy does NOT hold up at this scale yet.
+
+Fixes it forced (also applied to the 5-colony map, which still stabilises):
+- demand floor was 0.3/colony -> 30 units of phantom demand over 100 colonies (now 0.02); founding only counts raw demand that has a site with richness + a free slot.
+- workforce slots per colony (`max_pop / JOBS_PER_FACILITY`) so industry can't stack without limit.
+- Freight: one voyage per ship per tick, candidate lanes = cheapest sources x dearest destinations (keeps it fast), fleet capped by colony count, max 4 Freight corporations.
+- funded idle corporations wait 150 ticks instead of 30 (every colony starts with 40 of each good, so Parts look cheap at first).
+- site choice discounts output the colony's own market can't absorb.
+
+Still broken at 100 colonies:
+1. Only ~2 colonies host all extraction (the only sites with meaningful richness); 90+ colonies have no local economy and no jobs.
+2. No Producer survives: the Ore -> Metal -> Parts chain starts from the initial 40-unit stock, and Freight only moves inputs once a price spread opens, which is too slow, so the Producer bleeds upkeep and goes insolvent. Parts then sit at the price cap everywhere.
+3. 'in_shortage' is dominated by Parts being unavailable, so ~100% of colonies read as short.
+Next ideas: input contracts / producer-triggered Freight, per-colony local subsistence (so barren colonies still have a baseline economy), and richer Ore on more planets.

@@ -15,6 +15,7 @@ var use : Dictionary = {}          # smoothed consumption rate per good
 var use_this_tick : Dictionary = {}
 var capacity : Dictionary = {}     # units/tick that facilities here can add, per good
 var max_pop : float = 400.0        # habitability ceiling (from the planet in the real game)
+var facility_count : int = 0       # facilities built here (kept in sync by Corporation)
 var jobs : float = 0.0             # facilities operating here (set by the sim each tick)
 var local_cash : float = 0.0       # profit accrued by the colony's informal local business
 var planet_label : String = ""       # planet class, shown by the view
@@ -24,13 +25,18 @@ var shortfall_signal : float = 0.0 # smoothed price premium of pop goods -> corp
 func _init(n : String, p : float, rich : Dictionary, ceiling : float = 400.0) -> void:
 	name = n; pop = p; richness = rich; max_pop = ceiling
 	for g in Goods.ALL:
-		stock[g] = 40.0; price[g] = BASE_PRICE; use[g] = 1.0; capacity[g] = 0.0
+		stock[g] = 40.0; price[g] = BASE_PRICE; use[g] = 0.1; capacity[g] = 0.0
 	# Local business: small informal extraction for every raw resource the colony has.
 	for g in richness:
 		capacity[g] += local_output(g)
 
+const USE_FLOOR := 0.02            # tiny, so a 100-colony map doesn't invent phantom demand
 const JOBS_PER_FACILITY := 8.0
 const BASE_SELF_POP := 30.0
+
+## Workforce caps how many facilities a colony can host (spreads industry across colonies).
+func facility_slots_free() -> int:
+	return int(floor(max_pop / JOBS_PER_FACILITY)) - facility_count
 
 func local_output(g : int) -> float:
 	return richness.get(g, 0.0) * 0.25
@@ -64,7 +70,7 @@ func tick() -> void:
 		stock[g] -= take
 		# Desired consumption (not just what was available) so stock-outs stay visible as demand.
 		var used : float = pop_demand(g) + use_this_tick.get(g, 0.0)
-		use[g] = 0.9 * use[g] + 0.1 * maxf(used, 0.3)
+		use[g] = 0.9 * use[g] + 0.1 * maxf(used, USE_FLOOR)
 		var cover : float = stock[g] / (use[g] * COVER_TICKS)
 		price[g] = BASE_PRICE * clampf(pow(maxf(cover, 0.001), -0.7), 0.1, 10.0)
 	use_this_tick.clear()
