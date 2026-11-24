@@ -87,3 +87,12 @@ population, and the late decline is unexplained (suspect: chronic-loser closure 
 ### 1200-tick run (growth + upgrades)
 `docs/economy_results/fig5_upgrades_1200.png`. The decline seen around tick 380 is a one-off contraction, not a collapse: from tick ~600 to 1200 it holds steady
 (population ~6,000; 37-45 colonies with jobs; ~620-640 facilities; average level ~2.1; Food ~55-60, Parts ~42, Ore ~10, Metal 10-55; ~99 colonies still read as in shortage because of Food).
+
+## Is Food richness the ceiling? (no - the number of Food worlds is)
+`run_headless_csv.gd ... food=N` multiplies Edibles richness (`GalaxyColonies.food_mult`). Doubling or quadrupling it barely moves anything
+(Food price 67 -> 53, population ~5,600-5,900): only **2 of the 100 planets** have any Food at all.
+`diag_planets.gd` shows the mix (seed 7): 26 Neptunian, 18 asteroid rings, 10 Dry Husk, 8 Venerian, 7 Scorched Wasteland, 3 gas giants, and 54 planets with Ore.
+Figures: `docs/economy_results/fig6_food_richness.png`, `fig7_planet_mix.png`.
+Implication: life-bearing worlds are rare by design of the generator, so Food must be traded in from a few garden worlds or made synthetically
+(e.g. a Hydroponics recipe from Water/Volatiles), otherwise most colonies cap out at the subsistence population.
+Also noted: life stage is decided from water + age + geology before the final greenhouse temperature, so some hot or frozen worlds can count as living.

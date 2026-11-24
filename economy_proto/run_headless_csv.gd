@@ -4,11 +4,15 @@ extends SceneTree
 ## Lines starting with "CSV," are the data (header first).
 
 func _initialize() -> void:
+	# Loaded at runtime (not named statically) so the autoloads exist when these scripts compile.
+	var gc = load("res://economy_proto/galaxy_colonies.gd")
 	var growth : bool = true
 	var ticks : int = 600
 	for a in OS.get_cmdline_user_args():
 		if a == "growth=0":
 			growth = false
+		elif a.begins_with("food="):
+			gc.food_mult = float(a.get_slice("=", 1))
 		elif a.begins_with("ticks="):
 			ticks = int(a.get_slice("=", 1))
 	var sim = load("res://economy_proto/economy_sim.gd").new()
@@ -20,6 +24,11 @@ func _initialize() -> void:
 	sim.auto_run = false
 	root.add_child(sim)
 	sim.setup()
+	var food_sites : int = 0
+	for c in sim.markets:
+		if c.richness.has(Goods.FOOD):
+			food_sites += 1
+	print("INFO,food_mult=", gc.food_mult, ",food_sites=", food_sites)
 	print("CSV,", sim.METRIC_HEADER)
 	for t in ticks:
 		sim.step()
