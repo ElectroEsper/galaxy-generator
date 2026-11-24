@@ -14,6 +14,6 @@ tested headless on Godot 4.7:
 - Emergence: shortage premium raises founding chance; derived demand picks Extractor vs Producer.
 
 ## Known problems
-1. Producers now idle instead of buying inputs at a loss, which removed the boom/bust die-offs. Remaining: PARTS still spikes to the price cap at colonies without a nearby Producer, and Extractors turn over (found/dissolve) rather than persisting.
-2. Freight cash growth is ~3x lower but still unbounded over long runs (no lane capacity / congestion).
+1. Steady state reached by ~tick 160 in the seed-7 run (capacity settles ~1.25x use, prices flat); needs testing with other seeds, shocks (pop jumps, a colony losing its resource) and larger maps.
+2. Freight cash still grows slowly with no lane capacity / congestion model.
 3. Emergence is global, not tied to a specific colony; local-business layer, Surveyors, acquisitions and Workforce are not implemented.

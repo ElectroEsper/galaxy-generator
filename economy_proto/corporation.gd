@@ -68,6 +68,9 @@ func _run_facilities() -> void:
 	for f in facilities:
 		var c : ColonyMarket = f.colony
 		if Goods.is_raw(f.good):
+			# Same discipline as producers: don't extract at a loss; idle until price recovers.
+			if _unit_margin(c, f.good) <= 0.0:
+				continue
 			var q : float = c.richness.get(f.good, 0.0)
 			c.stock[f.good] += q
 			cash += q * (c.price[f.good] - Goods.RAW_COST[f.good])
@@ -116,7 +119,10 @@ func _facility_margin(c : ColonyMarket, g : int) -> float:
 func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	for f in facilities.duplicate():
 		f.losing_ticks = f.losing_ticks + 1 if _facility_margin(f.colony, f.good) <= 0.0 else 0
-		if f.losing_ticks > CLOSE_AFTER:
+		# Only shed capacity that is genuinely surplus; otherwise a price dip makes every
+		# facility close in the same tick and the market swings straight into shortage.
+		var surplus : bool = _regional(markets, "capacity", f.good) > _regional(markets, "use", f.good) * HEADROOM
+		if f.losing_ticks > CLOSE_AFTER and surplus:
 			facilities.erase(f)
 			f.colony.capacity[f.good] -= f.throughput()
 	if cash < CAPEX * 1.5:

@@ -44,6 +44,10 @@ func _tick(t : int) -> void:
 
 func _print_snapshot(t : int) -> void:
 	print("--- tick %d ---" % t)
+	var cap : Array = []
+	for g in Goods.ALL:
+		cap.append("%.1f/%.1f" % [Corporation._regional(markets, "capacity", g), Corporation._regional(markets, "use", g)])
+	print("  capacity/use ORE,METAL,PARTS,FOOD = ", cap)
 	for k in corps:
 		print("  %s cash=%d facilities=%d ships=%d" % [Corporation.Kind.find_key(k.kind), k.cash, k.facilities.size(), k.ships])
 	for c in markets:
