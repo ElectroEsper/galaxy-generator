@@ -2,16 +2,18 @@
 
 GDScript: `goods.gd`, `colony_market.gd`, `corporation.gd`, `economy_sim.gd` (headless driver).
 `sim_reference.py` is a Python mirror used to sanity-check dynamics (`python3 sim_reference.py`);
-the GDScript has NOT been run in Godot yet.
+tested headless on Godot 4.7:
+`godot --headless --path . --script res://economy_proto/run_headless.gd`
 
 ## What it models
 - Price derived from stock cover (stateless, bounded) rather than an integrated price.
-- Extractor / Producer: payback-gated, saturation-aware expansion; closure of facilities losing money; insolvency.
-- Freight: best arbitrage lane per tick, capped by stock, cash and fleet size.
-- Emergence: smoothed shortage premium per colony raises the chance a new corporation is founded.
+- Demand is *desired* consumption (pop + recipe input draws), so stock-outs stay visible.
+- Demand-pull expansion: Extractors/Producers only build while regional capacity < HEADROOM x regional use.
+- Producers favour sites whose inputs are actually stocked; losing facilities close; insolvent or idle corporations dissolve.
+- Freight: best lane per tick, capped by stock/cash/fleet; fleet grows only when busy, shrinks when idle; per-ship upkeep.
+- Emergence: shortage premium raises founding chance; derived demand picks Extractor vs Producer.
 
-## Known problems (observed in the Python mirror, not yet solved)
-1. Producers starve/die: ore/food oversupply drives raw prices to the floor, so METAL/PARTS margins stay thin.
-2. Freight profit is unbounded (no congestion / lane capacity / ship upkeep scaling).
-3. Producers need inputs locally; nothing yet places producers where Freight delivers inputs.
-4. Local-business layer, Surveyors, acquisitions and Workforce are not implemented.
+## Known problems
+1. Boom/bust: Producers die in shortage spikes (inputs arrive late) and respawn ~150 ticks later. Needs a lagged/forecast demand signal or input contracts.
+2. Freight still accumulates large cash early (spreads are wide before supply stabilises).
+3. Emergence is global, not tied to a specific colony; local-business layer, Surveyors, acquisitions and Workforce are not implemented.

@@ -13,12 +13,13 @@ var stock : Dictionary = {}
 var price : Dictionary = {}
 var use : Dictionary = {}          # smoothed consumption rate per good
 var use_this_tick : Dictionary = {}
+var capacity : Dictionary = {}     # units/tick that facilities here can add, per good
 var shortfall_signal : float = 0.0 # smoothed price premium of pop goods -> corp emergence
 
 func _init(n : String, p : float, rich : Dictionary) -> void:
 	name = n; pop = p; richness = rich
 	for g in Goods.ALL:
-		stock[g] = 40.0; price[g] = BASE_PRICE; use[g] = 1.0
+		stock[g] = 40.0; price[g] = BASE_PRICE; use[g] = 1.0; capacity[g] = 0.0
 
 func pop_demand(g : int) -> float:
 	match g:
@@ -33,7 +34,8 @@ func tick() -> void:
 	for g in Goods.ALL:
 		var take : float = minf(stock[g], pop_demand(g))
 		stock[g] -= take
-		var used : float = take + use_this_tick.get(g, 0.0)
+		# Desired consumption (not just what was available) so stock-outs stay visible as demand.
+		var used : float = pop_demand(g) + use_this_tick.get(g, 0.0)
 		use[g] = 0.9 * use[g] + 0.1 * maxf(used, 0.3)
 		var cover : float = stock[g] / (use[g] * COVER_TICKS)
 		price[g] = BASE_PRICE * clampf(pow(maxf(cover, 0.001), -0.7), 0.1, 10.0)

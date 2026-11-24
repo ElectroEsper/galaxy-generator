@@ -35,8 +35,11 @@ func _tick(t : int) -> void:
 		c.tick()
 		# Emergence: sustained shortage premium -> probabilistic corporation founding.
 		if t > 20 and corps.size() < MAX_CORPS and randf() < maxf(0.0, c.shortfall_signal - 0.25) * 0.05:
-			var kind : Corporation.Kind = [Corporation.Kind.EXTRACTOR, Corporation.Kind.PRODUCER].pick_random()
+			var kind : Corporation.Kind = _founding_kind()
 			corps.append(Corporation.new(kind, 200.0))
+	for k in corps:
+		if k.is_dead():
+			k.dissolve()
 	corps = corps.filter(func(k): return not k.is_dead())
 
 func _print_snapshot(t : int) -> void:
@@ -48,3 +51,15 @@ func _print_snapshot(t : int) -> void:
 		for g in Goods.ALL:
 			p.append("%d" % c.price[g])
 		print("  %s prices(ORE/METAL/PARTS/FOOD) = %s" % [c.name, "/".join(p)])
+
+## Derived demand decides what gets founded: unmet raw demand -> Extractor, else Producer.
+func _founding_kind() -> Corporation.Kind:
+	var raw_unmet : float = 0.0
+	var proc_unmet : float = 0.0
+	for g in Goods.ALL:
+		var u : float = Corporation._regional(markets, "use", g) * Corporation.HEADROOM - Corporation._regional(markets, "capacity", g)
+		if Goods.is_raw(g):
+			raw_unmet += maxf(u, 0.0)
+		else:
+			proc_unmet += maxf(u, 0.0)
+	return Corporation.Kind.EXTRACTOR if raw_unmet > proc_unmet else Corporation.Kind.PRODUCER
