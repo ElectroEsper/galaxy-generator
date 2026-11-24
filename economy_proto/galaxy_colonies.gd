@@ -44,6 +44,9 @@ static func _to_colony(p : Planet, star : Star, idx : int) -> ColonyMarket:
 	var food : float = p.resources.richness.get(PlanetResources.ResourceType.EDIBLES, 0.0)
 	if ore >= 1.0:
 		rich[Goods.ORE] = ore / 5.0          # 0-10 richness -> 0-2 units/tick
+	var water : float = p.resources.richness.get(PlanetResources.ResourceType.WATER, 0.0)
+	if water >= 1.0:
+		rich[Goods.WATER] = water / 5.0
 	if food >= 1.0:
 		rich[Goods.FOOD] = food / 5.0 * food_mult
 	var ceiling : float = clampf(120.0 + p.mass * 120.0 + 250.0 * p.life_stage, 120.0, 800.0)

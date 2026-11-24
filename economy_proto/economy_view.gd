@@ -6,9 +6,9 @@ const TICKS_PER_SECOND := 6.0
 const SHIP_SPEED := 160.0   # px / second
 const GOOD_COLORS : Dictionary = {
 	Goods.ORE: Color(0.75, 0.55, 0.35), Goods.METAL: Color(0.7, 0.8, 0.9),
-	Goods.PARTS: Color(1.0, 0.85, 0.3), Goods.FOOD: Color(0.5, 0.9, 0.45),
+	Goods.PARTS: Color(1.0, 0.85, 0.3), Goods.FOOD: Color(0.5, 0.9, 0.45), Goods.WATER: Color(0.4, 0.75, 0.95),
 }
-const GOOD_NAMES : Array[String] = ["Ore", "Metal", "Parts", "Food"]
+const GOOD_NAMES : Array[String] = ["Ore", "Metal", "Parts", "Food", "Water"]
 
 class Ship:
 	var from_pos : Vector2

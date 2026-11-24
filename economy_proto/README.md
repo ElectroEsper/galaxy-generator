@@ -96,3 +96,13 @@ Figures: `docs/economy_results/fig6_food_richness.png`, `fig7_planet_mix.png`.
 Implication: life-bearing worlds are rare by design of the generator, so Food must be traded in from a few garden worlds or made synthetically
 (e.g. a Hydroponics recipe from Water/Volatiles), otherwise most colonies cap out at the subsistence population.
 Also noted: life stage is decided from water + age + geology before the final greenhouse temperature, so some hot or frozen worlds can count as living.
+
+## Hydroponics (synthetic Food) and Water
+New good `WATER` (raw, extracted from planets with Water richness) and a Producer recipe `FOOD <- 2 WATER + 0.1 PARTS`, so any colony can make Food that
+has Water delivered by Freight. Food can now be extracted (farming, rare life-bearing worlds) or manufactured (hydroponics, anywhere); `Facility.recipe_mode`
+tells them apart. Ice giants now carry Water richness (water/ammonia ices); 45 of the 100 test planets have Water.
+`run_headless_csv.gd` also logs `hydro_facilities`, `food_extractors`, `avg_water`, `water_sites`. Figure: `docs/economy_results/fig8_hydroponics.png`.
+
+600 ticks, 100 planets, growth + upgrades: population ~5,900 -> ~7,800 (rocky water only) -> ~8,800 (with ice-giant water), peak ~9,300;
+colonies with jobs 48 -> 62 -> 80; 90-250 hydroponics facilities. Food stays expensive (~75-80) and Parts/Ore/Water rise too (Water ~59): the economy is now
+broadly supply-limited (worker slots, Freight, Water), not short of one good.
