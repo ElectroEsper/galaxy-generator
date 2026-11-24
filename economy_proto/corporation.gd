@@ -73,10 +73,13 @@ func _run_facilities() -> void:
 			cash += q * (c.price[f.good] - Goods.RAW_COST[f.good])
 		else:
 			var r : Dictionary = Goods.RECIPES[f.good]
-			var runs : float = 1.0
+			# Operating discipline: don't buy inputs at a loss; idle until the margin recovers.
+			var idle : bool = _unit_margin(c, f.good) <= 0.0
+			var runs : float = 0.0 if idle else 1.0
 			for i in r["in"]:
 				c.note_use(i, r["in"][i])           # desired input draw, even if the shelf is empty
-				runs = minf(runs, c.stock[i] / r["in"][i])
+				if not idle:
+					runs = minf(runs, c.stock[i] / r["in"][i])
 			if runs <= 0.0:
 				continue
 			for i in r["in"]:
