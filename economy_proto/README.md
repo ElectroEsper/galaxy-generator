@@ -64,3 +64,13 @@ Next ideas: input contracts / producer-triggered Freight, per-colony local subsi
 100-planet result: shortage falls from ~100% to 0% of colonies by tick 320, Parts settle at 3-8, Food at ~8, 6-11 Producers persist, corporation count stays bounded.
 Side effect: with subsistence covering baseline demand there is little unmet demand, so population and industry stagnate (the 5-colony map shrinks to a few facilities).
 That matches the design note that an economy without an export driver stagnates - but it means growth needs an explicit demand source (empire/player consumption, ship and building upkeep, natural population growth).
+
+## Growth drivers + graphs (docs/economy_results/)
+Added natural population growth (births need food and room, starvation kills, jobs only attract migrants), maintenance demand (Metal per
+population, Parts per facility), and chronic-loser facility closure. `run_headless_csv.gd` writes a CSV time series
+(`godot --headless --path . --script res://economy_proto/run_headless_csv.gd -- growth=1 ticks=600`); `docs/economy_results/plot.py` draws the figures.
+
+Result (100 planets, 600 ticks, seed 7): growth lifts population ~3,000 -> ~8,400 and spreads industry to ~90 of 100 colonies (1,700 facilities)
+versus 2 colonies and a collapse to zero facilities without growth. But all colonies end in shortage with Food ~93 and Parts ~78 (cap 100), and Ore/Metal ~45-50:
+supply, not demand, is now the ceiling. Suspects: few planets can grow Food and Ore richness is low; Producers compete with Extractors for the same
+per-colony workforce slots; Freight is capped at 25 ships.

@@ -140,7 +140,8 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		# Only shed capacity that is genuinely surplus; otherwise a price dip makes every
 		# facility close in the same tick and the market swings straight into shortage.
 		var surplus : bool = _regional(markets, "capacity", f.good) > _regional(markets, "use", f.good) * HEADROOM
-		if f.losing_ticks > CLOSE_AFTER and surplus:
+		# Chronic losers close regardless: an idle facility still costs upkeep and maintenance demand.
+		if (f.losing_ticks > CLOSE_AFTER and surplus) or f.losing_ticks > CLOSE_AFTER * 4:
 			facilities.erase(f)
 			f.colony.capacity[f.good] -= f.throughput()
 			f.colony.facility_count -= 1
