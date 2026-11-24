@@ -21,7 +21,6 @@ var tick_count : int = 0
 @export var all_planets : bool = false     # true: every generated planet is a colony (galaxy_colonies = how many)
 var max_corps : int = 12
 var growth_enabled : bool = true
-const MAX_FREIGHT_CORPS := 4
 
 func _ready() -> void:
 	setup()
@@ -130,7 +129,7 @@ func _founding_kind() -> Corporation.Kind:
 	for k in corps:
 		if k.kind == Corporation.Kind.FREIGHT:
 			fr += k.utilisation; fn += 1
-	if fn == 0 or (fn < MAX_FREIGHT_CORPS and fr / fn > 0.85 and randf() < 0.3):
+	if fn == 0 or (fr / fn > 0.85 and randf() < 0.3):
 		return Corporation.Kind.FREIGHT
 	var raw_unmet : float = 0.0
 	var proc_unmet : float = 0.0

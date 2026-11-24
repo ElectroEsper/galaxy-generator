@@ -291,8 +291,8 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 	utilisation = 0.8 * utilisation + 0.2 * (float(done) / float(voyages))
 	cash -= SHIP_UPKEEP * (1 + ships)
 	# Fleet grows only while it is actually busy, and shrinks when idle.
-	var fleet_cap : int = maxi(3, markets.size() / 4)   # lanes, not cash, limit how many ships are useful
-	if cash > CAPEX * 3.0 and utilisation > 0.85 and ships < fleet_cap:
+	# No fleet cap: cash and utilisation alone decide.
+	if cash > CAPEX * 3.0 and utilisation > 0.85:
 		cash -= CAPEX; ships += 1
 	elif utilisation < 0.25 and ships > 0:
 		ships -= 1

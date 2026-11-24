@@ -106,3 +106,9 @@ tells them apart. Ice giants now carry Water richness (water/ammonia ices); 45 o
 600 ticks, 100 planets, growth + upgrades: population ~5,900 -> ~7,800 (rocky water only) -> ~8,800 (with ice-giant water), peak ~9,300;
 colonies with jobs 48 -> 62 -> 80; 90-250 hydroponics facilities. Food stays expensive (~75-80) and Parts/Ore/Water rise too (Water ~59): the economy is now
 broadly supply-limited (worker slots, Freight, Water), not short of one good.
+
+## Freight cap removed
+The per-corporation fleet cap and `MAX_FREIGHT_CORPS` are gone; fleets now grow only on cash and utilisation (>0.85). Figure: `docs/economy_results/fig9_freight_uncapped.png`.
+600 ticks, 100 planets: population ~8,800 -> ~10,700, colonies with jobs 80 -> 99, Water price ~59 -> ~18 (water now reaches the hydroponics),
+Parts ~65 -> ~83 (more facilities to maintain), Food unchanged ~78. Still one Freight corporation, but its fleet grows by one ship every tick
+(591 by tick 600) without utilisation ever dropping: ship growth has no natural brake yet.
