@@ -48,3 +48,27 @@ static func _to_colony(p : Planet, star : Star, idx : int) -> ColonyMarket:
 	c.position = VIEW_CENTER + star.map_position * VIEW_RADIUS
 	c.planet_label = "%s" % Planet.PlanetClass.find_key(p.planet_class).capitalize().replace("_", " ")
 	return c
+
+
+## Every planet (rocky, giant, belt) becomes a colony, until `planet_count` is reached.
+## Planets of one star sit close together on the map; giants/belts get small population ceilings.
+static func generate_all(planet_count : int) -> Array[ColonyMarket]:
+	var out : Array[ColonyMarket] = []
+	var star_idx : int = 0
+	while out.size() < planet_count:
+		var star := Star.new()
+		star.init_solar_system()
+		var a : float = randf() * TAU
+		star.map_position = Vector2(cos(a), sin(a)) * sqrt(randf())
+		for p in star.orbit_slot:
+			if out.size() >= planet_count:
+				break
+			var c : ColonyMarket = _to_colony(p, star, out.size())
+			c.name = "S%d.%d" % [star_idx, out.size()]
+			c.position += Vector2.from_angle(randf() * TAU) * randf_range(6.0, 18.0)
+			if p.type != Planet.BaseType.NORMAL:
+				c.max_pop = 100.0 if p.type == Planet.BaseType.ASTEROID_BELT else 80.0
+				c.pop = minf(c.pop, c.max_pop * 0.5)
+			out.append(c)
+		star_idx += 1
+	return out

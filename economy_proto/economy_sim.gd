@@ -4,7 +4,6 @@ extends Node
 
 const TICKS := 400
 const PRINT_EVERY := 80
-const MAX_CORPS := 12
 const PROMOTE_CASH := 80.0
 var promotions : int = 0
 var attractions : int = 0
@@ -19,6 +18,9 @@ var tick_count : int = 0
 @export var use_galaxy : bool = false   # true: colonies come from generated stars/planets
 @export var galaxy_stars : int = 120
 @export var galaxy_colonies : int = 10
+@export var all_planets : bool = false     # true: every generated planet is a colony (galaxy_colonies = how many)
+var max_corps : int = 12
+const MAX_FREIGHT_CORPS := 4
 
 func _ready() -> void:
 	setup()
@@ -34,7 +36,7 @@ func run_headless() -> void:
 func setup() -> void:
 	seed(7)
 	if use_galaxy:
-		markets = GalaxyColonies.generate(galaxy_stars, galaxy_colonies)
+		markets = GalaxyColonies.generate_all(galaxy_colonies) if all_planets else GalaxyColonies.generate(galaxy_stars, galaxy_colonies)
 	else:
 		_setup_handmade()
 	_setup_corps()
@@ -70,12 +72,11 @@ func _tick(t : int) -> void:
 			f.colony.jobs += 1.0
 	for k in corps:
 		k.run(markets)
-		if not k.last_move.is_empty():
-			var m : Dictionary = k.last_move
+		for m in k.last_moves:
 			shipment_made.emit(m["from"], m["to"], m["good"], m["qty"])
 	for c in markets:
 		c.tick()
-		if t > 20 and corps.size() < MAX_CORPS:
+		if t > 20 and corps.size() < max_corps:
 			_try_emergence(c)
 	for k in corps:
 		if k.is_dead():
@@ -99,6 +100,9 @@ func _try_emergence(c : ColonyMarket) -> void:
 		attractions += 1
 
 func _print_snapshot(t : int) -> void:
+	if markets.size() > 20:
+		_print_summary(t)
+		return
 	print("--- tick %d --- (promotions=%d attractions=%d)" % [t, promotions, attractions])
 	var cap : Array = []
 	for g in Goods.ALL:
@@ -114,12 +118,53 @@ func _print_snapshot(t : int) -> void:
 
 ## Derived demand decides what gets founded: unmet raw demand -> Extractor, else Producer.
 func _founding_kind() -> Corporation.Kind:
+	var fr : float = 0.0
+	var fn : int = 0
+	for k in corps:
+		if k.kind == Corporation.Kind.FREIGHT:
+			fr += k.utilisation; fn += 1
+	if fn == 0 or (fn < MAX_FREIGHT_CORPS and fr / fn > 0.85 and randf() < 0.3):
+		return Corporation.Kind.FREIGHT
 	var raw_unmet : float = 0.0
 	var proc_unmet : float = 0.0
 	for g in Goods.ALL:
 		var u : float = Corporation._regional(markets, "use", g) * Corporation.HEADROOM - Corporation._regional(markets, "capacity", g)
 		if Goods.is_raw(g):
-			raw_unmet += maxf(u, 0.0)
+			# Only count raw demand that some colony could actually extract (richness + a free workforce slot).
+			if _has_extraction_site(g):
+				raw_unmet += maxf(u, 0.0)
 		else:
 			proc_unmet += maxf(u, 0.0)
 	return Corporation.Kind.EXTRACTOR if raw_unmet > proc_unmet else Corporation.Kind.PRODUCER
+
+func _print_summary(t : int) -> void:
+	var kinds : Dictionary = {}
+	var cash : float = 0.0
+	var fac : int = 0
+	var ships : int = 0
+	for k in corps:
+		var n : String = Corporation.Kind.find_key(k.kind)
+		kinds[n] = kinds.get(n, 0) + 1
+		cash += k.cash; fac += k.facilities.size(); ships += k.ships
+	var pop : float = 0.0
+	var short_n : int = 0
+	var with_jobs : int = 0
+	var avg : Dictionary = {}
+	for g in Goods.ALL:
+		avg[g] = 0.0
+	for c in markets:
+		pop += c.pop
+		if (c.price[Goods.FOOD] + c.price[Goods.PARTS]) / (2.0 * ColonyMarket.BASE_PRICE) > 2.0:
+			short_n += 1
+		if c.jobs > 0.0:
+			with_jobs += 1
+		for g in Goods.ALL:
+			avg[g] += c.price[g] / markets.size()
+	print("--- tick %d --- colonies=%d pop=%d  colonies_with_jobs=%d  in_shortage=%d  promotions=%d attractions=%d" % [t, markets.size(), pop, with_jobs, short_n, promotions, attractions])
+	print("  corps %s  facilities=%d  ships=%d  avg_price ORE/METAL/PARTS/FOOD = %d/%d/%d/%d" % [kinds, fac, ships, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD]])
+
+func _has_extraction_site(g : int) -> bool:
+	for c in markets:
+		if c.richness.get(g, 0.0) > 0.0 and c.facility_slots_free() > 0:
+			return true
+	return false

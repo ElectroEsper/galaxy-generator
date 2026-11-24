@@ -14,7 +14,8 @@ const PAYBACK_HORIZON := 25.0 # ticks; expand only if CAPEX / margin < this
 const HEADROOM := 1.3          # build until capacity ~ HEADROOM x use
 const CLOSE_AFTER := 20       # consecutive losing ticks before closing a facility
 const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
-const IDLE_AFTER := 30        # ticks with no facilities before dissolving (frees a corporation slot)
+const IDLE_AFTER := 30        # ticks with no facilities before a cash-poor corporation dissolves (frees a slot)
+const IDLE_AFTER_FUNDED := 150  # a corporation sitting on capital waits much longer for an opening
 
 class Facility:
 	var colony : ColonyMarket
@@ -36,7 +37,7 @@ var broke_ticks : int = 0
 var idle_ticks : int = 0
 var utilisation : float = 0.0
 var moved : float = 0.0
-var last_move : Dictionary = {}   # most recent shipment this tick (for the visual layer)
+var last_moves : Array = []       # shipments made this tick (for the visual layer)
 
 func _init(k : Kind, starting_cash : float) -> void:
 	kind = k; cash = starting_cash
@@ -46,14 +47,17 @@ func seed_facility(c : ColonyMarket, g : int) -> void:
 	var f := Facility.new(c, g)
 	facilities.append(f)
 	c.capacity[g] += f.throughput()
+	c.facility_count += 1
 
 func is_dead() -> bool:
-	return broke_ticks >= INSOLVENT_AFTER or idle_ticks >= IDLE_AFTER
+	var idle_limit : int = IDLE_AFTER_FUNDED if cash >= CAPEX * 1.5 else IDLE_AFTER
+	return broke_ticks >= INSOLVENT_AFTER or idle_ticks >= idle_limit
 
 ## Called when a corporation dissolves: its capacity leaves the market.
 func dissolve() -> void:
 	for f in facilities:
 		f.colony.capacity[f.good] -= f.throughput()
+		f.colony.facility_count -= 1
 	facilities.clear()
 
 static func _regional(markets : Array[ColonyMarket], field : String, g : int) -> float:
@@ -132,12 +136,15 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		if f.losing_ticks > CLOSE_AFTER and surplus:
 			facilities.erase(f)
 			f.colony.capacity[f.good] -= f.throughput()
+			f.colony.facility_count -= 1
 	if cash < CAPEX * 1.5:
 		return
 	var best_margin : float = 0.0
 	var best_c : ColonyMarket = null
 	var best_g : int = -1
 	for c in markets:
+		if c.facility_slots_free() <= 0:
+			continue
 		for g in Goods.ALL:
 			if (kind == Kind.EXTRACTOR) != Goods.is_raw(g):
 				continue
@@ -149,7 +156,10 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
 			if unmet < q * 0.5:
 				continue
-			var m : float = _unit_margin(c, g) * q * _input_availability(c, g) - UPKEEP
+			# Local absorption: output beyond what this colony's market can use only sells at crashed prices
+			# (export needs Freight), so favour sites whose own demand can take the output.
+			var absorb : float = minf(1.0, (c.use[g] * HEADROOM) / q)
+			var m : float = _unit_margin(c, g) * q * _input_availability(c, g) * absorb - UPKEEP
 			if m > best_margin:
 				best_margin = m; best_c = c; best_g = g
 	if best_c != null and CAPEX / best_margin < PAYBACK_HORIZON:
@@ -157,35 +167,51 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		var f := Facility.new(best_c, best_g)
 		facilities.append(f)
 		best_c.capacity[best_g] += f.throughput()
+		best_c.facility_count += 1
 
 func _run_freight(markets : Array[ColonyMarket]) -> void:
-	last_move = {}
-	var best_m : float = 0.0
-	var best : Array = []
+	last_moves = []
+	var voyages : int = 1 + ships          # every ship makes one voyage per tick
+	var cap : float = SHIP_CAPACITY
+	var done : int = 0
+	# Candidate lanes: for each good, cheapest sources x dearest destinations (keeps it O(n log n) at 100 colonies).
+	var sources : Dictionary = {}
+	var dests : Dictionary = {}
 	for g in Goods.ALL:
-		for a in markets:
-			if a.stock[g] < 6.0:
-				continue
-			for b in markets:
-				if a == b:
+		var by_price : Array = markets.duplicate()
+		by_price.sort_custom(func(x, y): return x.price[g] < y.price[g])
+		sources[g] = by_price.slice(0, 6)
+		by_price.reverse()
+		dests[g] = by_price.slice(0, 6)
+	for v in voyages:
+		var best_m : float = 0.0
+		var best : Array = []
+		for g in Goods.ALL:
+			for a in sources[g]:
+				if a.stock[g] < 6.0:
 					continue
-				var m : float = b.price[g] - a.price[g] - SHIP_COST * _dist(a, b, markets)
-				if m > best_m:
-					best_m = m; best = [g, a, b]
-	if best_m > 0.3:
+				for b in dests[g]:
+					if a == b:
+						continue
+					var m : float = b.price[g] - a.price[g] - SHIP_COST * _dist(a, b, markets)
+					if m > best_m:
+						best_m = m; best = [g, a, b]
+		if best_m <= 0.3:
+			break
 		var g : int = best[0]; var a : ColonyMarket = best[1]; var b : ColonyMarket = best[2]
-		var cap : float = SHIP_CAPACITY * (1 + ships)
 		var q : float = minf(minf(a.stock[g] * 0.5, cap), maxf(0.0, cash / a.price[g]))
+		if q <= 0.0:
+			break
 		a.stock[g] -= q; b.stock[g] += q
 		cash += q * best_m
-		moved = q
-		last_move = {"from": a, "to": b, "good": g, "qty": q}
-		utilisation = 0.8 * utilisation + 0.2 * (q / cap)
-	else:
-		utilisation = 0.8 * utilisation
+		moved += q
+		done += 1
+		last_moves.append({"from": a, "to": b, "good": g, "qty": q})
+	utilisation = 0.8 * utilisation + 0.2 * (float(done) / float(voyages))
 	cash -= SHIP_UPKEEP * (1 + ships)
 	# Fleet grows only while it is actually busy, and shrinks when idle.
-	if cash > CAPEX * 3.0 and utilisation > 0.85:
+	var fleet_cap : int = maxi(3, markets.size() / 4)   # lanes, not cash, limit how many ships are useful
+	if cash > CAPEX * 3.0 and utilisation > 0.85 and ships < fleet_cap:
 		cash -= CAPEX; ships += 1
 	elif utilisation < 0.25 and ships > 0:
 		ships -= 1
