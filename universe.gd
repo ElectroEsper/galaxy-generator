@@ -17,7 +17,7 @@ func print_universe_stats(universe_data : Dictionary) -> void:
 		var count : int = stars[star]
 		total_stars += count
 
-		var sc_name : String = AstronomyData.StarClass.find_key(star)
+		var sc_name : String = str(star)
 		star_class_counts[sc_name] = star_class_counts.get(sc_name, 0) + count
 
 
@@ -28,7 +28,8 @@ func print_universe_stats(universe_data : Dictionary) -> void:
 		var count : int = planets[planet]
 		total_planets += count
 
-		var pc_name : String = Planet.PlanetClass.find_key(planet.planet_class)
+		# Keys are already class-name strings (see Planet.add_to_universe_data)
+		var pc_name : String = str(planet)
 		planet_class_counts[pc_name] = planet_class_counts.get(pc_name, 0) + count
 
 	print("=".repeat(50))

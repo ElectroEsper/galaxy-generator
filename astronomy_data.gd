@@ -89,6 +89,25 @@ const DATABASE : Dictionary = {
 		life_possible_threshold = 0.7,
 		biosphere_mature_threshold = 3.5,
 		base_volatile_threshold = 0.6,
-		volatile_line_multiplier = 2.0
+		volatile_line_multiplier = 2.0,
+		# Protoplanets (young systems)
+		protoplanet_age_threshold = 0.3,
+		protoplanet_temp_max = 1500.0,
+		protoplanet_temp_min = 400.0,
+		protoplanet_falloff_rate = 3.5,
+		protoplanet_insolation_weight = 0.1,
+		# Exotic / radiogenic resource gating
+		r_process_reference = 2.5,
+		exotic_ore_deviation_threshold = 0.16,
+		exotic_ore_deviation_range = 0.04,
+		exotic_tidal_threshold = 0.6,
+		exotic_thermal_gh_threshold = 100.0,
+		radiogenic_threshold = 1.2,
+		ore_threshold = 2.0,
+		# Resource pools / discovery
+		base_decay_rate = 8.0,
+		discovery_yield_factor = 0.15,
+		allee_fraction = 0.15,
+		collapse_floor_fraction = 0.01
 	}
 }

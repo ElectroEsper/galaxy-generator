@@ -29,10 +29,24 @@ func _ready() -> void:
 	pass # Replace with function body.
 
 func init_solar_system():
-	pop = randi_range(0,3) as AstronomyData.StarPop
+	pop = select_population()
 	set_star_specs_debug()
 	pre_set_orbit_slots()
 	set_orbit_slots()
+
+## Proportional weighted pick (e.g. from galaxy-map RGBA channels r,g,b,a).
+## Returns a population whose class list is never empty.
+func select_population(weights : Dictionary = {
+		AstronomyData.StarPop.POP2i: 0.25, AstronomyData.StarPop.POP1: 0.25,
+		AstronomyData.StarPop.POP1i: 0.25, AstronomyData.StarPop.POP2: 0.25}) -> AstronomyData.StarPop:
+	var total : float = 0.0
+	for k in weights: total += weights[k]
+	var roll : float = randf() * total
+	for k in weights:
+		roll -= weights[k]
+		if roll <= 0.0 and get_valid_star_classes(k).size() > 0:
+			return k
+	return AstronomyData.StarPop.POP1
 
 func pre_set_orbit_slots():
 	var current_distance = min_orbit * randf_range(1.4, 2.0)
