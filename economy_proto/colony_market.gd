@@ -16,6 +16,7 @@ var use_this_tick : Dictionary = {}
 var capacity : Dictionary = {}     # units/tick that facilities here can add, per good
 var max_pop : float = 400.0        # habitability ceiling (from the planet in the real game)
 var facility_count : int = 0       # facilities built here (kept in sync by Corporation)
+var requests : Array = []          # input requests posted by producers this tick (served by Freight)
 var jobs : float = 0.0             # facilities operating here (set by the sim each tick)
 var local_cash : float = 0.0       # profit accrued by the colony's informal local business
 var planet_label : String = ""       # planet class, shown by the view
@@ -29,10 +30,16 @@ func _init(n : String, p : float, rich : Dictionary, ceiling : float = 400.0) ->
 	# Local business: small informal extraction for every raw resource the colony has.
 	for g in richness:
 		capacity[g] += local_output(g)
+	# Subsistence output also counts as capacity, so corporations only build for demand beyond it.
+	capacity[Goods.FOOD] += SUBSISTENCE_FOOD
+	capacity[Goods.PARTS] += SUBSISTENCE_PARTS
 
 const USE_FLOOR := 0.02            # tiny, so a 100-colony map doesn't invent phantom demand
-const JOBS_PER_FACILITY := 8.0
 const BASE_SELF_POP := 30.0
+const JOBS_PER_FACILITY := 8.0
+## Subsistence: every colony feeds and equips its baseline population without any corporation.
+const SUBSISTENCE_FOOD := BASE_SELF_POP * 0.05
+const SUBSISTENCE_PARTS := BASE_SELF_POP * 0.012
 
 ## Workforce caps how many facilities a colony can host (spreads industry across colonies).
 func facility_slots_free() -> int:
@@ -58,6 +65,8 @@ func note_use(g : int, amount : float) -> void:
 	use_this_tick[g] = use_this_tick.get(g, 0.0) + amount
 
 func tick() -> void:
+	stock[Goods.FOOD] += SUBSISTENCE_FOOD
+	stock[Goods.PARTS] += SUBSISTENCE_PARTS
 	for g in richness:
 		var q : float = local_output(g)
 		if price[g] > Goods.RAW_COST[g]:
@@ -74,5 +83,6 @@ func tick() -> void:
 		var cover : float = stock[g] / (use[g] * COVER_TICKS)
 		price[g] = BASE_PRICE * clampf(pow(maxf(cover, 0.001), -0.7), 0.1, 10.0)
 	use_this_tick.clear()
+	requests.clear()
 	var premium : float = (price[Goods.FOOD] + price[Goods.PARTS]) / (2.0 * BASE_PRICE) - 1.0
 	shortfall_signal = 0.9 * shortfall_signal + 0.1 * premium

@@ -96,7 +96,11 @@ func _try_emergence(c : ColonyMarket) -> void:
 		promotions += 1
 		return
 	if randf() < maxf(0.0, c.workforce_gap() - 0.15) * 0.03 or randf() < maxf(0.0, c.shortfall_signal - 0.25) * 0.05:
-		corps.append(Corporation.new(_founding_kind(), 200.0))
+		var kind : Corporation.Kind = _founding_kind()
+		for k in corps:                     # an idle funded corporation of this kind will take the opening itself
+			if k.kind == kind and k.is_idle_funded():
+				return
+		corps.append(Corporation.new(kind, 200.0))
 		attractions += 1
 
 func _print_snapshot(t : int) -> void:
