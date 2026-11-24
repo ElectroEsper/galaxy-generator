@@ -11,11 +11,10 @@ const SHIP_CAPACITY := 6.0
 const SHIP_UPKEEP := 1.5
 const SHIP_COST := 0.4        # per unit per distance step
 const PAYBACK_HORIZON := 25.0 # ticks; expand only if CAPEX / margin < this
+const REQUEST_COVER := 4.0     # producers ask Freight to keep this many ticks of inputs on the shelf
 const HEADROOM := 1.3          # build until capacity ~ HEADROOM x use
 const CLOSE_AFTER := 20       # consecutive losing ticks before closing a facility
 const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
-const IDLE_AFTER := 30        # ticks with no facilities before a cash-poor corporation dissolves (frees a slot)
-const IDLE_AFTER_FUNDED := 150  # a corporation sitting on capital waits much longer for an opening
 
 class Facility:
 	var colony : ColonyMarket
@@ -49,9 +48,13 @@ func seed_facility(c : ColonyMarket, g : int) -> void:
 	c.capacity[g] += f.throughput()
 	c.facility_count += 1
 
+## Idle and able to act on an opening (used so emergence doesn't found redundant corporations).
+func is_idle_funded() -> bool:
+	return facilities.is_empty() and cash >= CAPEX * 1.5
+
 func is_dead() -> bool:
-	var idle_limit : int = IDLE_AFTER_FUNDED if cash >= CAPEX * 1.5 else IDLE_AFTER
-	return broke_ticks >= INSOLVENT_AFTER or idle_ticks >= idle_limit
+	# A corporation only ever dissolves by going bankrupt; idle ones just wait for an opening.
+	return broke_ticks >= INSOLVENT_AFTER
 
 ## Called when a corporation dissolves: its capacity leaves the market.
 func dissolve() -> void:
@@ -92,6 +95,10 @@ func _run_facilities() -> void:
 			var runs : float = 0.0 if idle else 1.0
 			for i in r["in"]:
 				c.note_use(i, r["in"][i])           # desired input draw, even if the shelf is empty
+				# Ask Freight for a few ticks' worth of inputs when the shelf runs low.
+				var want : float = r["in"][i] * REQUEST_COVER
+				if c.stock[i] < want:
+					c.requests.append({"good": i, "qty": want - c.stock[i], "payer": self})
 				if not idle:
 					runs = minf(runs, c.stock[i] / r["in"][i])
 			if runs <= 0.0:
@@ -174,6 +181,32 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 	var voyages : int = 1 + ships          # every ship makes one voyage per tick
 	var cap : float = SHIP_CAPACITY
 	var done : int = 0
+	# Contracts first: deliver inputs that producers have asked for (producer pays the shipping fee).
+	for dest in markets:
+		if done >= voyages:
+			break
+		for req in dest.requests:
+			if done >= voyages:
+				break
+			var g : int = req["good"]
+			var src : ColonyMarket = null
+			for m in markets:
+				if m != dest and m.stock[g] >= 8.0 and (src == null or m.stock[g] > src.stock[g]):
+					src = m
+			if src == null:
+				continue
+			var q : float = minf(minf(req["qty"], cap), src.stock[g] * 0.5)
+			if q <= 0.0:
+				continue
+			var fee : float = SHIP_COST * _dist(src, dest, markets) * q
+			src.stock[g] -= q; dest.stock[g] += q
+			req["qty"] -= q
+			cash += q * (dest.price[g] - src.price[g]) + fee
+			if req["payer"] != null:
+				req["payer"].cash -= fee
+			moved += q
+			done += 1
+			last_moves.append({"from": src, "to": dest, "good": g, "qty": q})
 	# Candidate lanes: for each good, cheapest sources x dearest destinations (keeps it O(n log n) at 100 colonies).
 	var sources : Dictionary = {}
 	var dests : Dictionary = {}
@@ -183,7 +216,7 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		sources[g] = by_price.slice(0, 6)
 		by_price.reverse()
 		dests[g] = by_price.slice(0, 6)
-	for v in voyages:
+	for v in range(done, voyages):
 		var best_m : float = 0.0
 		var best : Array = []
 		for g in Goods.ALL:
