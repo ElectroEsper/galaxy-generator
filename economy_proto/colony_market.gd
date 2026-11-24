@@ -66,6 +66,7 @@ func pop_demand(g : int) -> float:
 	match g:
 		Goods.FOOD: d = pop * 0.05
 		Goods.PARTS: d = pop * 0.012
+		Goods.WATER: d = pop * 0.02
 	if growth_enabled:
 		# Maintenance demand: buildings and facilities wear out and need Metal / Parts.
 		match g:

@@ -26,8 +26,12 @@ func generate_richness(planet : Planet, star : Star) -> void:
 	match planet.type:
 		Planet.BaseType.ASTEROID_BELT:
 			richness[ResourceType.ORE] = clampf(5.0 + metal01 * 4.0 + randf_range(-1.0, 1.0), 0.0, 10.0)
-		Planet.BaseType.GAS_GIANT, Planet.BaseType.ICE_GIANT:
+		Planet.BaseType.GAS_GIANT:
 			richness[ResourceType.VOLATILES] = randf_range(5.0, 9.0)
+		Planet.BaseType.ICE_GIANT:
+			# Ice giants are mostly water/ammonia/methane ices: volatiles AND a lot of water.
+			richness[ResourceType.VOLATILES] = randf_range(5.0, 9.0)
+			richness[ResourceType.WATER] = randf_range(4.0, 8.0)
 		_:
 			richness[ResourceType.ORE] = clampf(metal01 * 9.0 * randf_range(0.6, 1.2), 0.0, 10.0)
 			if planet.has_volatile or planet.has_volatile_ice:

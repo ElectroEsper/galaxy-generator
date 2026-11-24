@@ -136,11 +136,11 @@ func _founding_kind() -> Corporation.Kind:
 	var proc_unmet : float = 0.0
 	for g in Goods.ALL:
 		var u : float = Corporation._regional(markets, "use", g) * Corporation.HEADROOM - Corporation._regional(markets, "capacity", g)
-		if Goods.is_raw(g):
-			# Only count raw demand that some colony could actually extract (richness + a free workforce slot).
-			if _has_extraction_site(g):
-				raw_unmet += maxf(u, 0.0)
-		else:
+		# Raw demand only counts if some colony can actually extract it (richness + a free workforce slot);
+		# anything with a recipe (including Food via hydroponics) can also be manufactured anywhere.
+		if Goods.is_raw(g) and _has_extraction_site(g):
+			raw_unmet += maxf(u, 0.0)
+		if Goods.RECIPES.has(g):
 			proc_unmet += maxf(u, 0.0)
 	return Corporation.Kind.EXTRACTOR if raw_unmet > proc_unmet else Corporation.Kind.PRODUCER
 
@@ -177,7 +177,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -194,6 +194,11 @@ func metrics_row() -> String:
 		for g in Goods.ALL:
 			avg[g] += c.price[g] / markets.size()
 	var lvl_sum : float = 0.0; var upg : int = 0
+	var hydro : int = 0; var farm : int = 0
+	var water_sites : int = 0; var water_avg : float = 0.0
+	for c in markets:
+		if c.richness.has(Goods.WATER): water_sites += 1
+		water_avg += c.price[Goods.WATER] / markets.size()
 	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0
 	for k in corps:
 		match k.kind:
@@ -204,4 +209,7 @@ func metrics_row() -> String:
 		upg += k.upgrades
 		for f in k.facilities:
 			lvl_sum += f.level
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg]
+			if f.good == Goods.FOOD:
+				if f.recipe_mode: hydro += 1
+				else: farm += 1
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites]

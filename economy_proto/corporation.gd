@@ -23,15 +23,18 @@ const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
 class Facility:
 	var colony : ColonyMarket
 	var good : int
+	var recipe_mode : bool = false   # true: manufactures `good` from inputs; false: extracts it from the ground
 	var level : int = 1
 	var losing_ticks : int = 0
-	func _init(c : ColonyMarket, g : int) -> void:
-		colony = c; good = g
+	func _init(c : ColonyMarket, g : int, recipe : bool = false) -> void:
+		colony = c; good = g; recipe_mode = recipe
+	func extracts() -> bool:
+		return not recipe_mode
 	func level_mult() -> float:
 		return 1.0 + LEVEL_BONUS * (level - 1)
 	## Units of `good` this facility can add per tick at its current level.
 	func throughput() -> float:
-		var base : float = colony.richness.get(good, 0.0) if Goods.is_raw(good) else Goods.RECIPES[good]["yield"]
+		var base : float = colony.richness.get(good, 0.0) if extracts() else Goods.RECIPES[good]["yield"]
 		return base * level_mult()
 	func upkeep() -> float:
 		return UPKEEP * (1.0 + UPKEEP_GROWTH * (level - 1))
@@ -63,11 +66,11 @@ func seed_facility(c : ColonyMarket, g : int) -> void:
 ## Keep colony capacity / extraction bookkeeping in sync with a facility's throughput.
 func _register(f : Facility, sign : float) -> void:
 	f.colony.capacity[f.good] += sign * f.throughput()
-	if Goods.is_raw(f.good):
+	if f.extracts():
 		f.colony.extraction[f.good] = f.colony.extraction.get(f.good, 0.0) + sign * f.throughput()
 
-func _site_room(c : ColonyMarket, g : int) -> float:
-	if not Goods.is_raw(g):
+func _site_room(c : ColonyMarket, g : int, recipe : bool = false) -> float:
+	if recipe:
 		return INF
 	return c.richness.get(g, 0.0) * EXTRACT_CAP_MULT - c.extraction.get(g, 0.0)
 
@@ -104,9 +107,9 @@ func run(markets : Array[ColonyMarket]) -> void:
 func _run_facilities() -> void:
 	for f in facilities:
 		var c : ColonyMarket = f.colony
-		if Goods.is_raw(f.good):
+		if f.extracts():
 			# Same discipline as producers: don't extract at a loss; idle until price recovers.
-			if _unit_margin(c, f.good) <= 0.0:
+			if _unit_margin(c, f.good, false) <= 0.0:
 				continue
 			var q : float = c.richness.get(f.good, 0.0) * f.level_mult()
 			c.stock[f.good] += q
@@ -114,7 +117,7 @@ func _run_facilities() -> void:
 		else:
 			var r : Dictionary = Goods.RECIPES[f.good]
 			# Operating discipline: don't buy inputs at a loss; idle until the margin recovers.
-			var idle : bool = _unit_margin(c, f.good) <= 0.0
+			var idle : bool = _unit_margin(c, f.good, true) <= 0.0
 			var runs : float = 0.0 if idle else f.level_mult()
 			for i in r["in"]:
 				c.note_use(i, r["in"][i] * f.level_mult())           # desired input draw, even if the shelf is empty
@@ -136,8 +139,8 @@ func _run_facilities() -> void:
 	for f in facilities:
 		cash -= f.upkeep()
 
-func _unit_margin(c : ColonyMarket, g : int) -> float:
-	if Goods.is_raw(g):
+func _unit_margin(c : ColonyMarket, g : int, recipe : bool = false) -> float:
+	if not recipe:
 		return c.price[g] - Goods.RAW_COST[g]
 	var r : Dictionary = Goods.RECIPES[g]
 	var m : float = r["yield"] * c.price[g]
@@ -146,8 +149,8 @@ func _unit_margin(c : ColonyMarket, g : int) -> float:
 	return m
 
 ## 0..1: how well-stocked this colony is with the inputs a recipe needs.
-func _input_availability(c : ColonyMarket, g : int) -> float:
-	if Goods.is_raw(g):
+func _input_availability(c : ColonyMarket, g : int, recipe : bool = false) -> float:
+	if not recipe:
 		return 1.0
 	var a : float = 1.0
 	for i in Goods.RECIPES[g]["in"]:
@@ -155,7 +158,7 @@ func _input_availability(c : ColonyMarket, g : int) -> float:
 	return clampf(a, 0.05, 1.0)
 
 func _facility_margin(f : Facility) -> float:
-	return _unit_margin(f.colony, f.good) * f.throughput() - f.upkeep()
+	return _unit_margin(f.colony, f.good, f.recipe_mode) * f.throughput() - f.upkeep()
 
 func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	for f in facilities.duplicate():
@@ -174,13 +177,15 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	var best_payback : float = INF
 	var best_new_c : ColonyMarket = null
 	var best_new_g : int = -1
+	var best_new_recipe : bool = false
 	var best_up : Facility = null
 	for c in markets:
 		for g in Goods.ALL:
-			if (kind == Kind.EXTRACTOR) != Goods.is_raw(g):
+			var as_recipe : bool = kind == Kind.PRODUCER
+			if (as_recipe and not Goods.RECIPES.has(g)) or (not as_recipe and not Goods.is_raw(g)):
 				continue
-			var q : float = c.richness.get(g, 0.0) if Goods.is_raw(g) else 1.0
-			if q <= 0.0 or _site_room(c, g) < q:
+			var q : float = 1.0 if as_recipe else c.richness.get(g, 0.0)
+			if q <= 0.0 or _site_room(c, g, as_recipe) < q:
 				continue
 			# Demand-pull: only build where regional use exceeds regional capacity.
 			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
@@ -188,20 +193,20 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 				continue
 			# Local absorption: output beyond what this colony's market can use only sells at crashed prices.
 			var absorb : float = minf(1.0, (c.use[g] * HEADROOM) / q)
-			var m : float = _unit_margin(c, g) * q * _input_availability(c, g) * absorb - UPKEEP
+			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
 			if c.facility_slots_free() > 0 and cash >= CAPEX * 1.5 and m > 0.0 and CAPEX / m < best_payback:
-				best_payback = CAPEX / m; best_new_c = c; best_new_g = g
+				best_payback = CAPEX / m; best_new_c = c; best_new_g = g; best_new_recipe = as_recipe
 	for f in facilities:
 		if f.level >= MAX_LEVEL:
 			continue
 		var delta : float = f.throughput() / f.level_mult() * LEVEL_BONUS      # extra output from one more level
-		if _site_room(f.colony, f.good) < delta or cash < f.upgrade_cost():
+		if _site_room(f.colony, f.good, f.recipe_mode) < delta or cash < f.upgrade_cost():
 			continue
 		var unmet_u : float = _regional(markets, "use", f.good) * HEADROOM - _regional(markets, "capacity", f.good)
 		if unmet_u < delta * 0.5:
 			continue
 		var absorb_u : float = minf(1.0, (f.colony.use[f.good] * HEADROOM) / (f.throughput() + delta))
-		var gain : float = _unit_margin(f.colony, f.good) * delta * _input_availability(f.colony, f.good) * absorb_u - UPKEEP * UPKEEP_GROWTH
+		var gain : float = _unit_margin(f.colony, f.good, f.recipe_mode) * delta * _input_availability(f.colony, f.good, f.recipe_mode) * absorb_u - UPKEEP * UPKEEP_GROWTH
 		if gain > 0.0 and f.upgrade_cost() / gain < best_payback:
 			best_payback = f.upgrade_cost() / gain; best_up = f; best_new_c = null
 	if best_payback >= PAYBACK_HORIZON:
@@ -214,7 +219,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		upgrades += 1
 	elif best_new_c != null:
 		cash -= CAPEX
-		var f := Facility.new(best_new_c, best_new_g)
+		var f := Facility.new(best_new_c, best_new_g, best_new_recipe)
 		facilities.append(f)
 		_register(f, 1.0)
 		best_new_c.facility_count += 1
