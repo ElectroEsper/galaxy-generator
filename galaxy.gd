@@ -12,6 +12,7 @@ func _ready() -> void:
 	while star_cnt < star_amount:
 		var ss = Star.new()
 		ss.init_solar_system()
+		ss.map_position = _random_disc_position()
 		add_child(ss)
 		star_cnt += 1
 	
@@ -21,3 +22,10 @@ func _ready() -> void:
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func _process(delta: float) -> void:
 	pass
+
+
+## Uniform random point on a unit disc (galaxy-map space).
+func _random_disc_position() -> Vector2:
+	var a : float = randf() * TAU
+	var r : float = sqrt(randf())
+	return Vector2(cos(a), sin(a)) * r

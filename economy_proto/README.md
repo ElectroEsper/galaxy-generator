@@ -28,3 +28,13 @@ Every colony with a raw resource runs a small informal extractor (`ColonyMarket.
 1. Promotion - banked local profit passes `PROMOTE_CASH` and the business incorporates as an Extractor at home.
 2. Attraction - workforce demand (jobs) outpaces population (`workforce_gap`) and an outside corporation is founded.
 Population drifts toward what jobs support, capped by `max_pop` (habitability ceiling).
+
+## Galaxy link
+`economy_view.tscn` now builds its colonies from the star generator (`galaxy_colonies.gd`): it generates stars, takes the best planet per star
+(scored by Ore + 1.5 x Edibles richness, +3 if temperate), converts Tier 0 richness (0-10) to extraction units (/5), sets the population ceiling from
+mass and life stage, and places colonies at the star's map position. `PlanetResources.generate_richness()` fills richness during planet generation.
+The headless runner (`run_headless.gd`) still uses the hand-made 5-colony map unless `use_galaxy` is set.
+
+Findings from the first galaxy run:
+- Typical metallicity gives low Ore richness (x0.2-0.4) and rich Food, so Producers starve and Parts sit at the price cap -> most colonies show red.
+- Planet generation marks some Steam Worlds as having life (life stage uses water but not the final greenhouse temperature) - worth gating.

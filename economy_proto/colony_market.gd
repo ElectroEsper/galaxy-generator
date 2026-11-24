@@ -17,6 +17,7 @@ var capacity : Dictionary = {}     # units/tick that facilities here can add, pe
 var max_pop : float = 400.0        # habitability ceiling (from the planet in the real game)
 var jobs : float = 0.0             # facilities operating here (set by the sim each tick)
 var local_cash : float = 0.0       # profit accrued by the colony's informal local business
+var planet_label : String = ""       # planet class, shown by the view
 var position : Vector2 = Vector2.ZERO  # galaxy-map position (used by the visual layer)
 var shortfall_signal : float = 0.0 # smoothed price premium of pop goods -> corp emergence
 

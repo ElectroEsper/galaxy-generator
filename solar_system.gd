@@ -23,6 +23,7 @@ var accu_cap : int = 100
 var tauaccum : float = 3.0
 
 var orbit_slot : Array[Planet]
+var map_position : Vector2 = Vector2.ZERO   # galaxy-map position (set by whoever places the star)
 
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:

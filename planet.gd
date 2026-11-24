@@ -94,6 +94,9 @@ var temperature : TempLevel
 var temperature_raw : int
 var temperature_gh : int
 var planet_class : PlanetClass
+var resources : PlanetResources
+
+static var debug_print : bool = false
 
 func pre_init_planet(star : Star, orbit_distance : float) :
 	distance = orbit_distance
@@ -155,6 +158,8 @@ func get_life_stage(has_water : bool, star_age: float, volcanic_level: Volcanism
 func init_as_asteroid_belt():
 	mass = 0.002 / sqrt(distance)
 	radius = distance
+	resources = PlanetResources.new()
+	resources.generate_richness(self, null)
 
 
 func init_as_planet(star : Star):
@@ -240,7 +245,10 @@ func init_as_planet(star : Star):
 		temperature_gh = 0
 	planet_class = get_planet_class(volcanism, star.age)
 	temperature = get_temperature_class(temperature_raw)
-	print(PlanetClass.find_key(planet_class), " @ ", temperature_raw, "K (+", temperature_gh, ") [", VolcanismLevel.find_key(volcanism), " / ", is_tectonic, " / ", is_tidallock, "]" )
+	if debug_print:
+		print(PlanetClass.find_key(planet_class), " @ ", temperature_raw, "K (+", temperature_gh, ") [", VolcanismLevel.find_key(volcanism), " / ", is_tectonic, " / ", is_tidallock, "]" )
+	resources = PlanetResources.new()
+	resources.generate_richness(self, star)
 	add_to_universe_data()
 
 func star_age_is_protoplanetary(star : Star) -> bool:

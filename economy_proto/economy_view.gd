@@ -29,6 +29,7 @@ var speed_mult : float = 1.0
 func _ready() -> void:
 	sim = load("res://economy_proto/economy_sim.gd").new()
 	sim.auto_run = false
+	sim.use_galaxy = true
 	add_child(sim)
 	sim.shipment_made.connect(_on_shipment)
 
@@ -80,6 +81,8 @@ func _draw() -> void:
 		draw_circle(c.position, r, col)
 		draw_arc(c.position, r, 0.0, TAU, 32, Color(1, 1, 1, 0.5), 1.5)
 		draw_string(font, c.position + Vector2(-r, -r - 8.0), "%s  pop %d  jobs %d" % [c.name, c.pop, c.jobs], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+		if c.planet_label != "":
+			draw_string(font, c.position + Vector2(-r, r + 30.0), c.planet_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 0.75, 0.9))
 		var tags : Array[String] = []
 		for g in c.richness:
 			tags.append("%s x%.1f" % [GOOD_NAMES[g], c.richness[g]])
