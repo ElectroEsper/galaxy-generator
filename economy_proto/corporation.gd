@@ -141,12 +141,15 @@ func dissolve() -> void:
 ## Regional totals are asked for thousands of times a tick, so they're cached: `use` only changes when markets tick
 ## (the sim clears the cache each tick), `capacity` entries are dropped whenever a facility is (un)registered.
 static var reg_cache : Dictionary = {}
+static var sub_prof : Dictionary = {}   # profiling: operate vs review time per kind (usec)
 
 ## Every new-facility and outpost option for a kind of corporation, best payback first (stable: ties keep scan order).
 static func _opportunity_board(markets : Array[ColonyMarket], k : Kind) -> Array:
 	var key : String = "board%d:%d" % [k, markets.size()]
 	if reg_cache.has(key):
 		return reg_cache[key]
+	var tb : int = Time.get_ticks_usec()
+	sub_prof["board_builds"] = sub_prof.get("board_builds", 0) + 1000   # shows as a count in the PROFILE line
 	var opts : Array = []
 	var as_recipe : bool = k == Kind.PRODUCER
 	for c in markets:
@@ -169,25 +172,31 @@ static func _opportunity_board(markets : Array[ColonyMarket], k : Kind) -> Array
 			if m > 0.0:
 				opts.append({"pb": cost_n / m, "i": opts.size(), "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
 	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
+	# The per-outpost numbers that only change monthly come precomputed from the sim; demand and claim fees stay live.
 	if k == Kind.EXTRACTOR and world != null:
-		for c in world.frontier_candidates():
-			if c.settled or not world.can_send_settlers(c):
+		for row in world.outpost_base():
+			var c : ColonyMarket = row[0]
+			var g : int = row[1]
+			var q : float = row[2]
+			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
+			if unmet < q * 0.5:
 				continue
-			var near : ColonyMarket = world.nearest_settled(c)
-			for g in c.richness:
-				var q : float = c.richness[g]
-				var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
-				if unmet < q * 0.5:
-					continue
-				var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
-				var m : float = (near.price[g] - Goods.RAW_COST[g] - SHIP_COST * _dist(c, near, [])) * q * absorb - UPKEEP
-				var fee : float = CLAIM_PRICE * c.claims[g]["value"] if c.claims.has(g) else 0.0
-				var cost : float = CAPEX + OUTPOST_COST + fee + _materials_cost(near, 1.0, true)
-				if m > 0.0:
-					# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
-					opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "i": opts.size(), "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
-	opts.sort_custom(func(x, y): return x["pb"] < y["pb"] or (x["pb"] == y["pb"] and x["i"] < y["i"]))
+			var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
+			var m : float = row[3] * q * absorb - UPKEEP
+			var fee : float = CLAIM_PRICE * c.claims[g]["value"] if c.claims.has(g) else 0.0
+			var cost : float = row[4] + fee
+			if m > 0.0:
+				# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
+				opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "i": opts.size(), "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
+	# Native sort on [payback, scan index] pairs (fast, same order as the explicit tie-break), then reorder the options.
+	var keys : Array = []
+	for o in opts: keys.append([o["pb"], o["i"]])
+	keys.sort()
+	var sorted_opts : Array = []
+	for kk in keys: sorted_opts.append(opts[kk[1]])
+	opts = sorted_opts
 	reg_cache[key] = opts
+	sub_prof["board_build_time"] = sub_prof.get("board_build_time", 0) + (Time.get_ticks_usec() - tb)
 	return opts
 
 static func _regional(markets : Array[ColonyMarket], field : String, g : int) -> float:
@@ -206,8 +215,14 @@ func run(markets : Array[ColonyMarket]) -> void:
 	elif kind == Kind.SURVEYOR:
 		_run_survey(markets)
 	else:
+		var t0 : int = Time.get_ticks_usec()
 		_run_facilities()
+		var t1 : int = Time.get_ticks_usec()
 		_review_and_expand(markets)
+		var t2 : int = Time.get_ticks_usec()
+		var kn : String = Kind.find_key(kind).to_lower()
+		sub_prof[kn + "_operate"] = sub_prof.get(kn + "_operate", 0) + (t1 - t0)
+		sub_prof[kn + "_review"] = sub_prof.get(kn + "_review", 0) + (t2 - t1)
 		idle_ticks = idle_ticks + 1 if facilities.is_empty() else 0
 	broke_ticks = broke_ticks + 1 if cash < 0.0 else 0
 

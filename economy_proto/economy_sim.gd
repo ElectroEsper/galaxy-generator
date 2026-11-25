@@ -176,6 +176,26 @@ var _near_cache : Dictionary = {}
 var _cand_cache : Array = []
 var _cand_valid : bool = false
 
+var _ob_cache : Array = []
+var _ob_valid : bool = false
+
+## Outpost options' fixed parts for this month: [body, good, richness, net unit margin at the nearest colony after shipping,
+## cost without the claim fee]. Rebuilt with the candidate list (each month, or when a colony is founded).
+func outpost_base() -> Array:
+	if not _ob_valid:
+		_ob_valid = true
+		var cands : Array = frontier_candidates()
+		_ob_cache = []
+		for c in cands:
+			if c.settled or not can_send_settlers(c):
+				continue
+			var near : ColonyMarket = nearest_settled(c)
+			var mats : float = Corporation._materials_cost(near, 1.0, true)
+			for g in c.richness:
+				var unit : float = near.price[g] - Goods.RAW_COST[g] - Corporation.SHIP_COST * Corporation._dist(c, near, [])
+				_ob_cache.append([c, g, c.richness[g], unit, Corporation.CAPEX + Corporation.OUTPOST_COST + mats])
+	return _ob_cache
+
 ## Unsettled bodies with known deposits (outpost candidates), computed once per tick.
 func frontier_candidates() -> Array:
 	if not _cand_valid:
@@ -231,7 +251,7 @@ func found_outpost(c : ColonyMarket) -> bool:
 		return false
 	donor.pop -= Corporation.OUTPOST_SETTLERS
 	c.settle(Corporation.OUTPOST_SETTLERS)
-	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
+	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false; _ob_valid = false
 	Corporation.survey_board_valid = false
 	_reveal_around(c.position, COLONY_HORIZON)
 	c.growth_enabled = growth_enabled
@@ -272,7 +292,7 @@ func _state_colonize() -> void:
 	near.stock[Goods.PARTS] = maxf(0.0, near.stock[Goods.PARTS] - STATE_HABITAT_PARTS)
 	donor.pop -= STATE_SETTLERS
 	best.settle(STATE_SETTLERS)
-	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
+	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false; _ob_valid = false
 	Corporation.survey_board_valid = false
 	_reveal_around(best.position, COLONY_HORIZON)
 	best.growth_enabled = growth_enabled
@@ -393,7 +413,7 @@ func _p(phase : String, t0 : int) -> int:
 func _tick(t : int) -> void:
 	var t0 : int = Time.get_ticks_usec()
 	Corporation.reg_cache.clear()
-	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
+	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false; _ob_valid = false
 	Corporation.survey_board_valid = false
 	for c in markets:
 		c.jobs = 0.0

@@ -323,3 +323,10 @@ afford that isn't a good its own plants are idling on, then compares it with its
   old order could depend on the sort's internals. With the old unstable sort the survey board reproduces the previous output exactly (100 and 1,000 systems);
   with the tie-break, 100 systems is still identical and 1,000 systems diverges (101 -> 117 colonies by year 100) purely through tie order.
 - 1,000 systems, 100 years: 80 s -> **73 s**; surveyors 25 s -> 14 s. Extractors (45 s, running and upgrading their own facilities) are now ~60% of the time.
+
+## Extractor review profiling
+`PROFILE,<kind>_operate/_review` and `board_builds/board_build_time` lines split the corporations' time. Extractors spend ~95% deciding what to build, almost all of it
+rebuilding the opportunity board (~2.6 rebuilds a month, each time any facility registers). Outpost options' fixed parts (price at the nearest colony after shipping,
+materials, cost) are now precomputed monthly (`outpost_base()`), and the board sorts natively on [payback, index]; output stays identical.
+1,000 systems x 100 years: 73 s -> 68 s. What's left is volume: ~3,000 outpost options re-scored per rebuild by year 100. Next step if needed: rebuild only
+the good whose capacity changed, or keep a per-good shortlist (may change results slightly).

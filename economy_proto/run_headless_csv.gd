@@ -65,6 +65,8 @@ func _initialize() -> void:
 			print("TIME,decade=%d,ms_per_tick=%.1f,colonies=%d" % [(t + 1) / 120, (now - decade0) / 120.0, sim.markets.size()])
 			decade0 = now
 	print("TIME,total_s=%.1f" % ((Time.get_ticks_msec() - wall0) / 1000.0))
+	for k in Corporation.sub_prof:
+		print("PROFILE,%s,%.1f" % [k, Corporation.sub_prof[k] / 1000.0])
 	for k in sim.prof:
 		print("PROFILE,%s,%.1f" % [k, sim.prof[k] / 1000.0])
 	quit()
