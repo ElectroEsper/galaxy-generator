@@ -35,7 +35,17 @@ const WEALTH_TAX := 0.005        # per month on cash above WEALTH_FREE (~6%/year
 const WEALTH_FREE := 800.0       # working capital left untaxed (~10 facilities' worth)
 var treasury : float = 0.0
 var tax_collected : float = 0.0  # cumulative
-@export var taxes : bool = true     # share of a colony's job gap filled per tick (from colonies with idle people)
+@export var taxes : bool = true
+# --- State colonization: the treasury founds colonies for strategic reasons, not profit ---
+@export var state_colonization : bool = true
+const STATE_REVIEW_MONTHS := 12      # the colonial office reviews the frontier once a year
+const STATE_SETTLERS := 40.0         # a state colony ships more people than a company outpost
+const STATE_GRANT := 60.0            # seed money for the new colony's local business (promotion happens at 80)
+const STATE_HABITAT_METAL := 30.0
+const STATE_HABITAT_PARTS := 12.0
+const STATE_RESERVE := 2.0           # only spend if the treasury holds this many times the cost
+var state_colonies : int = 0
+var state_spent : float = 0.0     # share of a colony's job gap filled per tick (from colonies with idle people)
 var growth_enabled : bool = true
 
 func _ready() -> void:
@@ -185,6 +195,48 @@ func found_outpost(c : ColonyMarket) -> bool:
 	shipment_made.emit(donor, c, Goods.FOOD, Corporation.OUTPOST_SETTLERS)
 	return true
 
+## The colonial office picks the surveyed, unsettled planet that best fills the economy's gaps
+## (known deposits weighted by how scarce that good is, plus room to grow), closest first, and pays for it all:
+## settlers' passage, habitat materials (taken from the nearest colony's shelf at its prices) and a grant for the local business.
+func _state_colonize() -> void:
+	var scarcity : Dictionary = {}
+	for g in Goods.ALL:
+		var p : float = 0.0
+		for m in markets: p += m.price[g]
+		scarcity[g] = p / markets.size() / ColonyMarket.BASE_PRICE
+	var best : ColonyMarket = null
+	var bv : float = 0.0
+	for c in frontier:
+		if c.settled or c.surveys == 0 or c.richness.is_empty():
+			continue
+		var v : float = c.max_pop / 400.0
+		for g in c.richness: v += c.richness[g] * scarcity[g]
+		v /= 1.0 + c.position.distance_to(nearest_settled(c).position) / 200.0
+		if v > bv:
+			bv = v; best = c
+	if best == null:
+		return
+	var near : ColonyMarket = nearest_settled(best)
+	var cost : float = Corporation.OUTPOST_COST + STATE_GRANT + STATE_HABITAT_METAL * near.price[Goods.METAL] + STATE_HABITAT_PARTS * near.price[Goods.PARTS]
+	if treasury < cost * STATE_RESERVE or _settler_donor(best) == null:
+		return
+	var donor : ColonyMarket = _settler_donor(best)
+	if donor.pop < STATE_SETTLERS * 2.5:
+		return
+	near.stock[Goods.METAL] = maxf(0.0, near.stock[Goods.METAL] - STATE_HABITAT_METAL)
+	near.stock[Goods.PARTS] = maxf(0.0, near.stock[Goods.PARTS] - STATE_HABITAT_PARTS)
+	donor.pop -= STATE_SETTLERS
+	best.settle(STATE_SETTLERS)
+	best.growth_enabled = growth_enabled
+	best.local_cash = STATE_GRANT
+	best.claims.clear()                  # the state buys out any surveyor claims as part of the cost
+	markets.append(best)
+	settlements += 1
+	state_colonies += 1
+	treasury -= cost
+	state_spent += cost
+	shipment_made.emit(donor, best, Goods.FOOD, STATE_SETTLERS)
+
 ## Zero-sum migration: people move from better-staffed colonies (pop / jobs-target above average)
 ## toward worse-staffed ones, so new outposts fill up from the core even when everyone is short of workers.
 func _migrate() -> void:
@@ -242,6 +294,8 @@ func _tick(t : int) -> void:
 			shipment_made.emit(m["from"], m["to"], m["good"], m["qty"])
 	if colonize:
 		_migrate()
+		if state_colonization and t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1:
+			_state_colonize()
 		if t % 120 == 119 and not corps.any(func(k): return k.kind == Corporation.Kind.SURVEYOR):
 			corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # the state re-charters a survey service
 			treasury -= 600.0
@@ -348,7 +402,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -398,4 +452,4 @@ func metrics_row() -> String:
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent]

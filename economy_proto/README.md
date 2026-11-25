@@ -228,3 +228,19 @@ Result, 4 seeds, 50 years, vs taxes-only (`fig14_construction.png`, `run_build_s
 - Fewer facilities on 3 of 4 seeds (434->325, 222->198, 677->465; 374->393), population a bit lower (2,013->1,352, 2,069->1,816, 2,081->1,790; seed 11 879->1,041).
 - Corporate cash 3-6x lower (4.6M -> 0.8M on seed 7), treasury 1.7-3.8M: capital now binds.
 - Parts is the scarce good again (~55-65 vs ~16-24), because construction competes with consumers and maintenance for it.
+
+## State-funded colonization (`state_colonization`, default on; `state=0` on the CSV runner to disable)
+Once a year the colonial office picks the surveyed, unsettled planet that best fills the economy's gaps: known deposits weighted by how scarce each good is (average price / base),
+plus room to grow (max_pop), divided by distance from the nearest colony. It pays from the treasury (only if it holds 2x the cost): passage for 40 settlers
+(from a colony of 100+), habitat materials (30 Metal + 12 Parts from the nearest colony's shelf, at its prices), a 60 grant to the new colony's local business
+(promotion to a corporation happens at 80) and any surveyor claims. Metrics: `state_colonies`, `state_spent`.
+Two fixes found on the way (both also apply without the state):
+- A corporation in trouble (cash < 0) now closes its worst loss-maker each month instead of carrying idle plants into bankruptcy.
+- No new capacity or upgrades for a good while more than 30% of the corporation's own plants making it are losing money (inputs too dear, not demand too low).
+  Before this, the only Producer kept building Metal plants while ~200 of its 218 sat idle for lack of Ore, went bankrupt and took the whole Metal/Parts chain with it (seed 31, year 41).
+Result, 4 seeds, 50 years, vs companies only (`fig15_state_colonization.png`, `run_state_s<seed>_t1.csv`):
+- ~1 state colony a year (46-49), 50-58 colonies by year 50 vs 12-21; the first 10 colonies by year ~10 instead of years 10-45.
+- Population higher on every seed (2,180/1,960/2,400/2,450 vs 1,350/1,040/1,820/1,790); facilities similar.
+- Cheap: 40-80k spent of a treasury that still ends at 2.5-3.4M (more colonies -> more tax).
+Open: seed 11 loses most of its industry between years 30 and 40 without going bankrupt: Metal gluts in some colonies while Parts plants elsewhere idle on dear local Metal
+(a distribution problem). New 200-cash founders can't afford construction at Parts ~50-100 and go bankrupt quickly. The state's pace is fixed at one colony a year.

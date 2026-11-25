@@ -28,6 +28,7 @@ const LEVEL_BONUS := 0.6        # each level adds this fraction of base output
 const UPKEEP_GROWTH := 0.25     # each level adds this fraction of base upkeep (jobs/slots stay the same)
 const EXTRACT_CAP_MULT := 40.0  # a site can't be extracted beyond richness x this per good, however upgraded
 const HEADROOM := 1.3          # build until capacity ~ HEADROOM x use
+const IDLE_BLOCK := 0.3        # no new capacity for a good while more than this share of our plants making it lose money
 const CLOSE_AFTER := 20       # consecutive losing ticks before closing a facility
 const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
 # --- Surveying & colonization (1 tick = 1 month) ---
@@ -220,8 +221,29 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			_register(f, -1.0)
 			f.colony.facility_count -= 1
 			if f.extracts(): f.colony.extractor_count -= 1
+	# In trouble: shed the worst loss-maker each month instead of riding idle plants into bankruptcy.
+	if cash < 0.0:
+		var worst : Facility = null
+		var wm : float = 0.0
+		for f in facilities:
+			var fm : float = _facility_margin(f)
+			if f.losing_ticks > 3 and fm < wm:
+				wm = fm; worst = f
+		if worst != null:
+			facilities.erase(worst)
+			_register(worst, -1.0)
+			worst.colony.facility_count -= 1
+			if worst.extracts(): worst.colony.extractor_count -= 1
 	if cash < CAPEX * 0.6:
 		return
+	# Don't add capacity for a good while our own plants making it stand idle (inputs too dear, not demand too low).
+	var idle_share : Dictionary = {}
+	var n_by : Dictionary = {}
+	for f in facilities:
+		if f.building(): continue
+		n_by[f.good] = n_by.get(f.good, 0) + 1
+		if f.losing_ticks > 2: idle_share[f.good] = idle_share.get(f.good, 0) + 1
+	for g in idle_share: idle_share[g] = float(idle_share[g]) / float(n_by[g])
 	# Candidate actions: build a new facility, or upgrade one of ours. Pick the best payback.
 	var best_payback : float = INF
 	var best_new_c : ColonyMarket = null
@@ -232,6 +254,8 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		for g in Goods.ALL:
 			var as_recipe : bool = kind == Kind.PRODUCER
 			if (as_recipe and not Goods.RECIPES.has(g)) or (not as_recipe and not Goods.is_raw(g)):
+				continue
+			if idle_share.get(g, 0.0) > IDLE_BLOCK:
 				continue
 			var q : float = 1.0 if as_recipe else c.richness.get(g, 0.0)
 			if q <= 0.0 or _site_room(c, g, as_recipe) < q:
@@ -266,7 +290,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 				if cash >= cost * 1.2 and m > 0.0 and pb < best_payback:
 					best_payback = pb; best_new_c = c; best_new_g = g; best_new_recipe = false; best_frontier = true
 	for f in facilities:
-		if f.level >= MAX_LEVEL or f.building():
+		if f.level >= MAX_LEVEL or f.building() or idle_share.get(f.good, 0.0) > IDLE_BLOCK:
 			continue
 		var delta : float = f.throughput() / f.level_mult() * LEVEL_BONUS      # extra output from one more level
 		if _site_room(f.colony, f.good, f.recipe_mode) < delta or cash < f.upgrade_cost():
