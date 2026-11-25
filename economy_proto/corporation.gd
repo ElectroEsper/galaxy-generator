@@ -17,6 +17,7 @@ const SHIP_TIME := 4.0      # distance units a ship can sail per tick (a deliver
 const LOAD_TIME := 0.5
 const GROW_FILL := 0.15    # add capacity only while holds are at least this full on average
 const SHIP_COST := 0.4        # per unit per distance step
+const EXPORT_SHARE := 1.0    # share of the regional deficit a site can count on exporting to (Freight carries it)
 const PAYBACK_HORIZON := 25.0 # ticks; expand only if CAPEX / margin < this
 const REQUEST_COVER := 4.0     # producers ask Freight to keep this many ticks of inputs on the shelf
 const MAX_LEVEL := 4
@@ -202,7 +203,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			if unmet < q * 0.5:
 				continue
 			# Local absorption: output beyond what this colony's market can use only sells at crashed prices.
-			var absorb : float = minf(1.0, (c.use[g] * HEADROOM) / q)
+			var absorb : float = minf(1.0, (c.use[g] * HEADROOM + unmet * EXPORT_SHARE) / q)
 			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
 			if c.facility_slots_free() > 0 and cash >= CAPEX * 1.5 and m > 0.0 and CAPEX / m < best_payback:
 				best_payback = CAPEX / m; best_new_c = c; best_new_g = g; best_new_recipe = as_recipe
@@ -215,7 +216,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		var unmet_u : float = _regional(markets, "use", f.good) * HEADROOM - _regional(markets, "capacity", f.good)
 		if unmet_u < delta * 0.5:
 			continue
-		var absorb_u : float = minf(1.0, (f.colony.use[f.good] * HEADROOM) / (f.throughput() + delta))
+		var absorb_u : float = minf(1.0, (f.colony.use[f.good] * HEADROOM + unmet_u * EXPORT_SHARE) / (f.throughput() + delta))
 		var gain : float = _unit_margin(f.colony, f.good, f.recipe_mode) * delta * _input_availability(f.colony, f.good, f.recipe_mode) * absorb_u - UPKEEP * UPKEEP_GROWTH
 		if gain > 0.0 and f.upgrade_cost() / gain < best_payback:
 			best_payback = f.upgrade_cost() / gain; best_up = f; best_new_c = null

@@ -139,3 +139,13 @@ Each colony can load/unload only `PORT_BASE (2) + pop/100` deliveries per tick, 
 Figure: `docs/economy_results/fig11_port_congestion.png`; data `run_6000_ports.csv` (new column `port_use`).
 6,000 ticks, 100 planets: fleet settles at 66 ships (uncapped: ~6,000), 100/100 colonies with jobs, pop ~10,400-11,300 (uncapped ~11,000, old capped ~8,500),
 Water ~18-40 (uncapped ~18, capped ~60), Parts ~70, port use ~65%. Fleet growth is slow (53 at tick 600, 63 at 3,000, 66 from tick ~4,500) and stable.
+
+## Parts supply diagnosis (tick 400, 100 planets) - `economy_proto/diag_goods.gd`
+Parts is not short of *capacity* (capacity 311 vs use 240, cover 1.3) yet 77 of 100 colonies are stocked out and the price sits at ~80. Findings:
+- **Ore is the real shortage**: cover 0.49 (use 1,024 vs capacity 500). Metal (2 Ore each) and so Parts are input-starved; nominal producer capacity overstates real output.
+- Ore is **not richness-limited**: 46 Ore sites could yield 1,597, only ~490 is extracted, 31 sites have headroom.
+- Expansion at those sites was blocked by the *local absorption* factor (output only counted against the colony's own Ore use). Fixed with `EXPORT_SHARE`: a site also counts the regional deficit Freight can carry.
+  Effect: Ore stockouts 10 -> 1, Ore/Metal/Parts facilities +20%, but Parts price unchanged (~85) and Parts stockouts 77 -> 68.
+- The next wall is **workforce slots at the Ore sites**: 35 sites have headroom but only 1 has a free slot (avg pop ~100 -> ~12 slots, taken by Water/Food extractors and producers). Overall 1,689 of 2,229 slots are used.
+- Corporations are rich (millions in cash) and the corp cap is filled by 53 Extractor corps vs only 6 Producers: capital is not the constraint.
+Candidates: let big extractor sites take more workers per slot-level (upgrades already do), let producers locate where inputs arrive, or raise slots for resource colonies.
