@@ -612,14 +612,20 @@ func route_ok(f : Empire, a : ColonyMarket, b : ColonyMarket) -> bool:
 		for near in _route_geometry(a, b):
 			var z : Empire = null
 			for s in near:
-				if _claimed_owner.has(s):
-					z = _claimed_owner[s]; break
+				if s.owner != null:
+					z = s.owner; break           # ownership read live: a newly claimed system closes routes at once
 			if z == null or z == f or ends.has(z):
 				continue
 			if not treaty(f, z, "passage"):
 				ok = false; break
 	_route_cache[key] = ok
 	return ok
+
+## A star system got its first owner: cached route answers may now be wrong (freighters' memos too).
+func on_system_claimed() -> void:
+	_route_cache.clear()
+	for k in corps:
+		if k.kind == Corporation.Kind.FREIGHT: k._route_memo.clear()
 
 ## Route geometry, computed once per pair of positions and kept forever (star systems never move): for each sample point
 ## along the straight line, every star system within TERRITORY_RADIUS, nearest first (ties: later system first, matching
