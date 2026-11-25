@@ -28,7 +28,14 @@ var settlements : int = 0
 const CAPITAL_POP := 600.0     # what one well-endowed planet can support on its own deposits
 const CAPITAL_CEILING := 3000.0
 const SETTLER_MIN_POP := 100.0  # a colony this big can spare settlers for an outpost
-const MIGRATION_RATE := 0.02     # share of a colony's job gap filled per tick (from colonies with idle people)
+const MIGRATION_RATE := 0.02
+# --- State finances ---
+const PROFIT_TAX := 0.25         # share of a corporation's monthly profit
+const WEALTH_TAX := 0.005        # per month on cash above WEALTH_FREE (~6%/year): drains idle hoards
+const WEALTH_FREE := 800.0       # working capital left untaxed (~10 facilities' worth)
+var treasury : float = 0.0
+var tax_collected : float = 0.0  # cumulative
+@export var taxes : bool = true     # share of a colony's job gap filled per tick (from colonies with idle people)
 var growth_enabled : bool = true
 
 func _ready() -> void:
@@ -52,8 +59,10 @@ func date_label() -> String:
 	var m : int = int(tick_count * MONTHS_PER_TICK)
 	return "year %d, month %d" % [m / 12, m % 12 + 1]
 
+@export var rng_seed : int = 7
+
 func setup() -> void:
-	seed(7)
+	seed(rng_seed)
 	if use_galaxy:
 		markets = GalaxyColonies.generate_all(galaxy_colonies) if all_planets else GalaxyColonies.generate(galaxy_stars, galaxy_colonies)
 	else:
@@ -224,13 +233,18 @@ func _tick(t : int) -> void:
 		for f in k.facilities:
 			f.colony.jobs += 1.0
 	for k in corps:
+		var before : float = k.cash
 		k.run(markets)
+		if taxes:
+			var tax : float = maxf(0.0, k.cash - before) * PROFIT_TAX + maxf(0.0, k.cash - WEALTH_FREE) * WEALTH_TAX
+			k.cash -= tax; treasury += tax; tax_collected += tax
 		for m in k.last_moves:
 			shipment_made.emit(m["from"], m["to"], m["good"], m["qty"])
 	if colonize:
 		_migrate()
 		if t % 120 == 119 and not corps.any(func(k): return k.kind == Corporation.Kind.SURVEYOR):
 			corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # the state re-charters a survey service
+			treasury -= 600.0
 	for c in markets.duplicate():
 		c.tick()
 		if t > 20 and corps.size() < max_corps:
@@ -334,7 +348,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -361,7 +375,8 @@ func metrics_row() -> String:
 		pu += c.port_used; ps += c.port_slots()
 	var port_use : float = pu / maxf(ps, 1.0)
 	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0; var sclass : int = 0
-	var surveyed : int = 0; var sships : int = 0; var csold : int = 0
+	var surveyed : int = 0; var sships : int = 0; var csold : int = 0; var ccash : float = 0.0
+	for k in corps: ccash += k.cash
 	for c in frontier:
 		if c.surveys > 0: surveyed += 1
 	for k in corps:
@@ -379,4 +394,4 @@ func metrics_row() -> String:
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected]

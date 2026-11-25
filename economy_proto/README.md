@@ -205,3 +205,13 @@ first outposts in years 5-8, 9 colonies by year 28 (all in or near the home syst
 population 600 -> 2,010, facilities 142 -> 386, prices low after the first years (Parts ~30, Food/Ore ~5). An early Parts crunch (years 2-5) clears once the first Ore outposts open.
 Open: expansion stalls after year 28 because demand is met and outposts are judged only on current shortages (no speculative or long-distance colonization);
 32 Extractor corporations exist but most are idle; claims sell slowly (4 of dozens of finds).
+
+## Taxes and a state treasury
+`EconomySim.taxes` (default on; `taxes=0` on the CSV runner to disable): every corporation pays 25% of its monthly profit plus 0.5%/month (~6%/year) on cash above 800.
+It goes to `treasury`, which now pays the survey contracts and Surveyor charters. New metrics: `treasury`, `corp_cash`, `tax_collected`. Runs now take `seed=N`.
+Colonization runs, 50 years, seeds 7/11/23/31 (`fig13_taxes.png`, `run_col_s<seed>_t<0|1>.csv`):
+- Corporate cash falls about 3x (seed 7: 13.8M -> 4.6M; range 1.6-5.8M taxed vs 6.8-15.3M untaxed), but it is still millions against an 80-cash facility.
+- The treasury reaches 4.8-10.4M with almost nothing to spend it on.
+- Expansion barely changes: colonies 9/6/12/11 untaxed vs 15/6/10/14 taxed, facilities mixed, population the same. The differences are within seed-to-seed noise.
+Why: corporations decide on payback (cost vs. monthly margin), not on cash, and a facility (80) earns its cost back in a few months, so profits dwarf every investment.
+A cash drain can't bind until building costs scale with what facilities earn (e.g. capex paid in Metal/Parts as construction materials, or capex tied to output value).

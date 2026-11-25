@@ -461,7 +461,8 @@ func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
 
 func _complete_survey(t : ColonyMarket) -> void:
 	if t.surveys == 0:
-		cash += SURVEY_CONTRACT
+		cash += SURVEY_CONTRACT          # paid by the state treasury
+		if world != null: world.treasury -= SURVEY_CONTRACT
 	t.surveys += 1
 	surveys_done += 1
 	for g in t.hidden_richness:
