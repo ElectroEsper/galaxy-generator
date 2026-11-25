@@ -165,3 +165,9 @@ Parts capacity is spread over all 100 colonies (~4 each), not concentrated, and 
   Parts stockouts 63 -> 23, but Ore stockouts 10 -> 43, Food 70, Water 62 and prices in the hundreds: the Ore wall just moves. Reverted; not a fix on its own.
 - Freight contract order now rotates each tick (no low-index bias) and contract deliveries count toward the fleet's marginal-profit growth check. No visible change in Parts, kept as correctness fixes.
 Real levers: more Ore (mining slots/colonies, richer or more numerous Ore sites, recycling), or less Parts demand (maintenance per facility 0.08, hydroponics Parts 0.1, yield 1 Parts per 2 Metal).
+
+## Salvage / recycling
+`SALVAGE_RATE = 0.5`: half of what maintenance consumes (Metal per pop, Parts per facility) is recovered as scrap and returns to the colony's stock. Maintenance was over half of Parts demand, so this cuts net Parts (and thus Ore) demand directly.
+Tick 400 diagnostic: Parts stockouts 63 -> 31 colonies, Parts price 84 -> 66, Food stockouts 57 -> 47, Metal stockouts 4.
+1200-tick run (`run_salvage_1200.csv`) vs the half-slot run: pop 11,181 -> 11,708, 100/100 colonies with jobs, Parts ~74 -> ~62, Food ~63 -> ~61, Ore/Metal/Water about the same (~32/38/35).
+Everything still reads "in shortage" by the metric (price > 2x base for Food+Parts), but the gap is closing slowly; the remaining Ore wall (46 Ore sites, workforce slots) is the structural limit.

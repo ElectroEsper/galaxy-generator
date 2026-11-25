@@ -67,6 +67,15 @@ func workforce_gap() -> float:
 func target_pop() -> float:
 	return minf(BASE_SELF_POP + jobs * JOBS_PER_FACILITY, max_pop)
 
+## Recycling: share of maintenance consumption recovered as scrap (cuts net Metal/Parts demand, hence Ore).
+const SALVAGE_RATE := 0.5
+
+func maintenance_demand(g : int) -> float:
+	match g:
+		Goods.METAL: return pop * MAINT_METAL_PER_POP
+		Goods.PARTS: return facility_count * MAINT_PARTS_PER_FACILITY
+	return 0.0
+
 func pop_demand(g : int) -> float:
 	var d : float = 0.0
 	match g:
@@ -104,6 +113,9 @@ func tick() -> void:
 	for g in Goods.ALL:
 		var take : float = minf(stock[g], pop_demand(g))
 		stock[g] -= take
+		# Salvage: part of what maintenance wears out is recovered as scrap and goes back into stock.
+		if growth_enabled and take > 0.0 and (g == Goods.METAL or g == Goods.PARTS):
+			stock[g] += SALVAGE_RATE * maintenance_demand(g) * take / maxf(pop_demand(g), 0.001)
 		# Desired consumption (not just what was available) so stock-outs stay visible as demand.
 		var used : float = pop_demand(g) + use_this_tick.get(g, 0.0)
 		use[g] = 0.9 * use[g] + 0.1 * maxf(used, USE_FLOOR)
