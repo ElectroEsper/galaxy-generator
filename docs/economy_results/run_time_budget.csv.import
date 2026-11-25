@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://dxgukrnixjpem"
+
+[deps]
+
+files=["res://docs/economy_results/run_time_budget.pop.translation", "res://docs/economy_results/run_time_budget.colonies.translation", "res://docs/economy_results/run_time_budget.id.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.extractors.translation", "res://docs/economy_results/run_time_budget.producers.translation", "res://docs/economy_results/run_time_budget.freight.translation", "res://docs/economy_results/run_time_budget.facilities.translation", "res://docs/economy_results/run_time_budget.ships.translation", "res://docs/economy_results/run_time_budget.promotions.translation", "res://docs/economy_results/run_time_budget.attractions.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.upgrades.translation", "res://docs/economy_results/run_time_budget.hydro.translation", "res://docs/economy_results/run_time_budget.food.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.water.translation", "res://docs/economy_results/run_time_budget.ship.translation"]
+
+source_file="res://docs/economy_results/run_time_budget.csv"
+dest_files=["res://docs/economy_results/run_time_budget.pop.translation", "res://docs/economy_results/run_time_budget.colonies.translation", "res://docs/economy_results/run_time_budget.id.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.extractors.translation", "res://docs/economy_results/run_time_budget.producers.translation", "res://docs/economy_results/run_time_budget.freight.translation", "res://docs/economy_results/run_time_budget.facilities.translation", "res://docs/economy_results/run_time_budget.ships.translation", "res://docs/economy_results/run_time_budget.promotions.translation", "res://docs/economy_results/run_time_budget.attractions.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.upgrades.translation", "res://docs/economy_results/run_time_budget.hydro.translation", "res://docs/economy_results/run_time_budget.food.translation", "res://docs/economy_results/run_time_budget.avg.translation", "res://docs/economy_results/run_time_budget.water.translation", "res://docs/economy_results/run_time_budget.ship.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

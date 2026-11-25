@@ -423,7 +423,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent,surveys_ordered,survey_backlog"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent,surveys_ordered,survey_backlog,survey_losses,systems_settled"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -452,6 +452,11 @@ func metrics_row() -> String:
 	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0; var sclass : int = 0
 	var surveyed : int = 0; var sships : int = 0; var csold : int = 0; var ccash : float = 0.0
 	var nbuild : int = 0
+	var slost : int = 0
+	var seen_sys : Dictionary = {}
+	for c in markets:
+		if c.system != null: seen_sys[c.system] = true
+	var sys_settled : int = seen_sys.size()
 	for k in corps:
 		ccash += k.cash
 		for f in k.facilities:
@@ -464,7 +469,7 @@ func metrics_row() -> String:
 			Corporation.Kind.PRODUCER: pr += 1
 			Corporation.Kind.FREIGHT: fr += 1
 		if k.kind == Corporation.Kind.SURVEYOR:
-			sships += 1 + k.ships; csold += k.claims_sold
+			sships += 1 + k.ships; csold += k.claims_sold; slost += k.ships_lost
 			continue
 		fac += k.facilities.size(); ships += k.ships; sclass = maxi(sclass, k.ship_class if k.kind == Corporation.Kind.FREIGHT else 0)
 		upg += k.upgrades
@@ -473,4 +478,4 @@ func metrics_row() -> String:
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent, surveys_ordered, survey_backlog]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f,%d,%d,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent, surveys_ordered, survey_backlog, slost, sys_settled]

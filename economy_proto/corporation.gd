@@ -32,7 +32,12 @@ const IDLE_BLOCK := 0.3        # no new capacity for a good while more than this
 const CLOSE_AFTER := 20       # consecutive losing ticks before closing a facility
 const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
 # --- Surveying & colonization (1 tick = 1 month) ---
-const SURVEY_MONTHS := 6.0       # time on site per survey, plus travel
+const SURVEY_MONTHS := 6.0       # an Earth-sized body; see survey_months()
+const INTRA_SYSTEM_DIST := 0.4   # lane cost between bodies of the same star system
+const SURVEY_LOSS := 0.03        # chance a survey ship is lost on a survey (space is dangerous)
+const SURVEY_LOSS_GIANT := 0.04  # extra risk around giants (radiation, storms, moons)
+const SURVEY_LOSS_BELT := 0.03   # extra risk in belts (debris)
+const SHIP_BUY_MONTHS := 6       # a surveyor can commission at most one new ship this often
 const SURVEY_UPKEEP := 2.0       # per survey ship per tick
 const SURVEY_SHIP_COST := 150.0
 const SURVEY_YIELD := 0.6        # share of true richness a good survey reveals (decays as more is found)
@@ -464,12 +469,26 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		ships -= 1
 
 func _dist(a : ColonyMarket, b : ColonyMarket, markets : Array[ColonyMarket]) -> float:
-	# Map-space distance (px) -> lane cost units; keeps the hand-made map at roughly 1.5-3.
+	# Within one star system: a short hop. Between systems: map-space distance (px) -> lane cost units.
+	if a.system != null and a.system == b.system:
+		return INTRA_SYSTEM_DIST
 	return 1.0 + a.position.distance_to(b.position) / 200.0
 
 
 # ---------------------------------------------------------------- Surveying
 var survey_jobs : Array = []      # [{"target": ColonyMarket, "eta": ticks left}]
+var months_since_buy : int = 0
+var ships_lost : int = 0
+
+## Bigger bodies take longer: ~6 months for an Earth-sized world, ~1.5 years for a giant; belts by the size of their ring.
+static func survey_months(c : ColonyMarket) -> float:
+	return minf(2.0 + 4.0 * pow(maxf(c.body_radius, 0.2), 0.6), 24.0)
+
+static func loss_chance(c : ColonyMarket) -> float:
+	var p : float = SURVEY_LOSS
+	if c.planet_label.begins_with("Asteroid") or c.planet_label.begins_with("Debris"): p += SURVEY_LOSS_BELT
+	elif c.body_radius > 5.0: p += SURVEY_LOSS_GIANT
+	return p
 var surveys_done : int = 0
 var claims_sold : int = 0
 
@@ -498,24 +517,33 @@ func unsold_claims() -> int:
 
 func _run_survey(markets : Array[ColonyMarket]) -> void:
 	last_moves = []
+	months_since_buy += 1
 	for j in survey_jobs.duplicate():
 		j["eta"] -= 1.0
 		if j["eta"] <= 0.0:
-			_complete_survey(j["target"])
 			survey_jobs.erase(j)
+			if randf() < loss_chance(j["target"]):
+				ships_lost += 1
+				if ships > 0:
+					ships -= 1            # ship and findings lost
+				else:
+					cash -= SURVEY_SHIP_COST * 0.5   # the last vessel is replaced at a cost
+				continue
+			_complete_survey(j["target"])
 	var free : int = (1 + ships) - survey_jobs.size()
 	for i in free:
 		var t : ColonyMarket = _pick_survey_target(markets)
 		if t == null:
 			break
-		survey_jobs.append({"target": t, "eta": SURVEY_MONTHS + _dist(t, world.nearest_settled(t), markets) / SHIP_TIME})
+		survey_jobs.append({"target": t, "eta": survey_months(t) + _dist(t, world.nearest_settled(t), markets) / SHIP_TIME})
 	cash -= SURVEY_UPKEEP * (1 + ships)
 	# Grow on speculation (few unsold finds) or on paid work (a backlog of state orders bigger than the fleet can clear in a year).
 	var ordered : int = world.survey_backlog if world != null else 0
 	var per_ship_year : float = 12.0 / (SURVEY_MONTHS + 1.0)
-	if cash > SURVEY_SHIP_COST * 4.0 and (unsold_claims() < MAX_UNSOLD_CLAIMS or ordered > (1 + ships) * per_ship_year):
+	if months_since_buy >= SHIP_BUY_MONTHS and cash > SURVEY_SHIP_COST * 4.0 and (unsold_claims() < MAX_UNSOLD_CLAIMS or ordered > (1 + ships) * per_ship_year):
 		cash -= SURVEY_SHIP_COST
 		ships += 1
+		months_since_buy = 0
 	elif cash < SURVEY_SHIP_COST and ships > 0 and ordered == 0:
 		ships -= 1                       # sell a ship rather than go broke
 		cash += SURVEY_SHIP_COST * 0.5
@@ -535,7 +563,7 @@ func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
 		var known : float = 0.0
 		for g in c.richness: known += c.richness[g]
 		var ev : float = 1.0 if c.surveys == 0 else 0.4 * known / float(c.surveys)
-		var v : float = ev / (SURVEY_MONTHS + _dist(c, world.nearest_settled(c), markets) / SHIP_TIME)
+		var v : float = ev / (survey_months(c) + _dist(c, world.nearest_settled(c), markets) / SHIP_TIME)
 		if v > best_v:
 			best_v = v; best = c
 	return best

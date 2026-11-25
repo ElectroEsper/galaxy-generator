@@ -259,3 +259,17 @@ Result, seed 7 (`fig17_survey_orders.png`, `run_500_surveys.csv`, `run_100_surve
 - 500 planets: all surveyed by year ~17 (was 94 by year 50); the fleet peaks at 50 ships, then sells down to 12. Claims sold 1 -> 111. Colonies 50 -> 64, pop 2,430 -> 2,700, Parts ~44 -> ~28.
 - 100 planets: map surveyed by year ~10; claims sold 1 -> 61; colonies 53 -> 54, pop 2,180 -> 2,390.
 Open: the survey boom may be too fast (5%/year of a growing treasury = 485 orders on the 500 map); on 100 planets facilities fall from ~275 (year 20) to ~150 (year 50) while population keeps rising - to investigate.
+
+## Star systems on the map; survey time by body size; survey ship losses
+- The map's nodes are now **star systems** (`SystemNode`: name, position, star class, bodies). Planets, giants and belts are colonies/frontier *inside* a system:
+  they share the system's map position, and travel between bodies of one system is a short hop (`INTRA_SYSTEM_DIST` 0.4 vs 1 + distance/200 between systems).
+  The 2D view draws one node per system: grey star = unsurveyed, gold ring = known deposits, disc = settled (size = population, "n/m" = colonies/bodies,
+  colour = Food/Parts supply), the Capital system outlined in gold; trade lanes only between systems (`view_systems.png`).
+- **Survey time scales with the body**: 2 + 4 x radius^0.6 months, capped at 24 (Earth-sized ~6 months, giants ~19, belts by their ring size).
+- **Surveying is dangerous**: a ship is lost on 3% of surveys (+4% around giants, +3% in belts), with its findings; the last vessel is replaced at a cost.
+- A Surveyor can commission at most one new ship every 6 months.
+Result, seed 7 (`run_500_systems.csv`, `run_100_systems.csv`): 500 planets surveyed 74 by year 10, 299 by year 20, all by ~year 35 (was all by year 17);
+fleet peaks at ~19 ships (was 50); 45 ships lost in 50 years. 53 colonies in 20 systems, pop 2,600. 100 planets: 51 colonies in 7 systems, pop 2,550.
+Open (now the main problem): facilities fall after year ~20 (500: 193 -> 113; 100: 190 -> 88) while population rises, and Parts climbs to 50-60.
+Traced on seed 7 / 100 planets: the Producer closes 39 of its 54 Metal plants around year 22 (chronic losers: Ore too dear for the Metal price), Parts follows,
+it goes bankrupt at year ~27, and the 200-cash founders that replace it can't afford construction materials, so the Metal/Parts chain never rebuilds.

@@ -30,6 +30,8 @@ var shortfall_signal : float = 0.0 # smoothed price premium of pop goods -> corp
 ## When true, the sim moves people between colonies (zero-sum migration) instead of colonies conjuring migrants.
 static var external_migration : bool = false
 var settled : bool = true
+var system = null                     # SystemNode this body belongs to
+var body_radius : float = 1.0          # size of the body (drives survey time)
 var site_score : float = 0.0          # how attractive the planet looks as a home (picks the Capital World)
 var hidden_richness : Dictionary = {} # true richness; `richness` holds only what surveys have revealed
 var found_frac : Dictionary = {}      # revealed share of each good's true richness

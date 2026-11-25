@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://d06vr0jfo0ija"
+
+[deps]
+
+files=["res://docs/economy_results/run_ship_classes.pop.translation", "res://docs/economy_results/run_ship_classes.colonies.translation", "res://docs/economy_results/run_ship_classes.id.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.extractors.translation", "res://docs/economy_results/run_ship_classes.producers.translation", "res://docs/economy_results/run_ship_classes.freight.translation", "res://docs/economy_results/run_ship_classes.facilities.translation", "res://docs/economy_results/run_ship_classes.ships.translation", "res://docs/economy_results/run_ship_classes.promotions.translation", "res://docs/economy_results/run_ship_classes.attractions.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.upgrades.translation", "res://docs/economy_results/run_ship_classes.hydro.translation", "res://docs/economy_results/run_ship_classes.food.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.water.translation", "res://docs/economy_results/run_ship_classes.ship.translation"]
+
+source_file="res://docs/economy_results/run_ship_classes.csv"
+dest_files=["res://docs/economy_results/run_ship_classes.pop.translation", "res://docs/economy_results/run_ship_classes.colonies.translation", "res://docs/economy_results/run_ship_classes.id.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.extractors.translation", "res://docs/economy_results/run_ship_classes.producers.translation", "res://docs/economy_results/run_ship_classes.freight.translation", "res://docs/economy_results/run_ship_classes.facilities.translation", "res://docs/economy_results/run_ship_classes.ships.translation", "res://docs/economy_results/run_ship_classes.promotions.translation", "res://docs/economy_results/run_ship_classes.attractions.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.upgrades.translation", "res://docs/economy_results/run_ship_classes.hydro.translation", "res://docs/economy_results/run_ship_classes.food.translation", "res://docs/economy_results/run_ship_classes.avg.translation", "res://docs/economy_results/run_ship_classes.water.translation", "res://docs/economy_results/run_ship_classes.ship.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

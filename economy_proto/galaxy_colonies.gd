@@ -4,6 +4,8 @@ extends RefCounted
 
 ## Experiment knob: multiplies Food (Edibles) richness when colonies are created.
 static var food_mult : float = 1.0
+## Star systems built by the last generate_all() call (the map's nodes).
+static var systems : Array = []
 
 const VIEW_CENTER := Vector2(576.0, 340.0)
 const VIEW_RADIUS := Vector2(470.0, 250.0)
@@ -61,18 +63,26 @@ static func _to_colony(p : Planet, star : Star, idx : int) -> ColonyMarket:
 static func generate_all(planet_count : int) -> Array[ColonyMarket]:
 	var out : Array[ColonyMarket] = []
 	var star_idx : int = 0
+	systems = []
 	while out.size() < planet_count:
 		var star := Star.new()
 		star.init_solar_system()
 		var a : float = randf() * TAU
 		star.map_position = Vector2(cos(a), sin(a)) * sqrt(randf())
+		var sys := SystemNode.new("S%d" % star_idx, VIEW_CENTER + star.map_position * VIEW_RADIUS)
+		sys.star_class = AstronomyData.StarClass.find_key(star.star_class)
+		if not star.orbit_slot.is_empty():
+			systems.append(sys)
 		for p in star.orbit_slot:
 			if out.size() >= planet_count:
 				break
 			var c : ColonyMarket = _to_colony(p, star, out.size())
 			c.site_score = _score(p, star) + c.max_pop / 200.0
 			c.name = "S%d.%d" % [star_idx, out.size()]
-			c.position += Vector2.from_angle(randf() * TAU) * randf_range(6.0, 18.0)
+			c.position = sys.position          # bodies sit at their star on the map
+			c.system = sys
+			c.body_radius = minf(p.radius, 30.0)   # Earth radii (giants ~10-12); belts use their orbit ring in AU
+			sys.bodies.append(c)
 			if p.type != Planet.BaseType.NORMAL:
 				c.max_pop = 100.0 if p.type == Planet.BaseType.ASTEROID_BELT else 80.0
 				c.pop = minf(c.pop, c.max_pop * 0.5)
