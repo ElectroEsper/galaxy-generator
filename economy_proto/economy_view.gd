@@ -85,6 +85,9 @@ func _draw() -> void:
 	# Star systems: the map's nodes. Unsettled = small star (grey if nothing surveyed, gold ring if deposits are known);
 	# settled = disc sized by population, coloured by Food/Parts supply, with "colonies/bodies" and population.
 	for sys in GalaxyColonies.systems:
+		if not sys.known:
+			draw_circle(sys.position, 1.5, Color(0.4, 0.4, 0.45, 0.25))   # dark: not yet charted
+			continue
 		var settled : Array = sys.settled_bodies()
 		var surveyed : int = sys.surveyed_count()
 		if settled.is_empty():

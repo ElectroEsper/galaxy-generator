@@ -273,3 +273,13 @@ fleet peaks at ~19 ships (was 50); 45 ships lost in 50 years. 53 colonies in 20 
 Open (now the main problem): facilities fall after year ~20 (500: 193 -> 113; 100: 190 -> 88) while population rises, and Parts climbs to 50-60.
 Traced on seed 7 / 100 planets: the Producer closes 39 of its 54 Metal plants around year 22 (chronic losers: Ore too dear for the Metal price), Parts follows,
 it goes bankrupt at year ~27, and the 200-cash founders that replace it can't afford construction materials, so the Metal/Parts chain never rebuilds.
+
+## Known space and sector discoveries (exploration booms)
+Only systems within 160 px of the Capital are charted at the start; each newly settled system charts systems within 110 px; uncharted systems can't be surveyed,
+settled or ordered surveys. A random **sector discovery** (probe report, breakthrough, signal) charts every system within 140 px of a random dark one; its monthly chance is
+0.2% plus up to 4% as known space gets fully surveyed (cubic), so booms arrive when surveyors run out of work. Metrics: `known_systems`, `sector_events`.
+Result, 500 planets (= only ~46 star systems, ~11 bodies each), 100 years, seeds 7/23 (`fig18_exploration_booms.png`, `run_booms_s*.csv`):
+- One long boom, not several: 6-7 discoveries in years 12-29 chart the whole map by year ~30; survey fleets rise to ~27 ships, then fall to 1 by year ~55.
+- The map is too small for repeated booms: each discovery charts ~5-15 of 46 systems. A bigger galaxy (the scaling test) or smaller sectors should give distinct waves.
+- Colonies keep growing for the whole century (113 / 151 by year 100, pop 6,400 / 7,300).
+The old all-planets-settled mode still runs after the star-system change (checked 120 ticks).

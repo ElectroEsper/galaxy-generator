@@ -6,6 +6,7 @@ var name : String
 var position : Vector2
 var star_class : String = ""
 var bodies : Array = []        # ColonyMarket, settled or not
+var known : bool = true        # charted on the map; unknown systems can't be surveyed or settled
 
 func _init(n : String, pos : Vector2) -> void:
 	name = n; position = pos

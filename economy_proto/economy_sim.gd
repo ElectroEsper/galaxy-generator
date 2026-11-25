@@ -48,6 +48,13 @@ var state_colonies : int = 0
 # State survey programme: each year the state orders surveys of unexplored planets, paid on completion.
 const SURVEY_ORDER_PRICE := 80.0     # paid per ordered first survey (instead of the flat contract fee)
 const SURVEY_BUDGET_SHARE := 0.05    # at most this share of the treasury is committed to new orders each year
+# --- Known space: only systems near settled space are charted; random sector discoveries open new regions ---
+const HOME_HORIZON := 160.0          # px around the Capital known at the start
+const COLONY_HORIZON := 110.0        # each newly settled system charts its neighbourhood
+const SECTOR_RADIUS := 140.0         # a sector discovery charts every system this close to its centre
+const SECTOR_BASE_CHANCE := 0.002    # per month, even while known space still has work
+const SECTOR_EXHAUSTED_CHANCE := 0.04 # per month extra when known space is fully surveyed
+var sector_events : int = 0
 var survey_backlog : int = 0         # ordered surveys not yet done
 var surveys_ordered : int = 0
 var state_spent : float = 0.0     # share of a colony's job gap filled per tick (from colonies with idle people)
@@ -126,6 +133,9 @@ func _setup_colonization() -> void:
 			for g in c.hidden_richness:
 				c.reveal(g, c.hidden_richness[g])
 	markets = [capital]
+	for sys in GalaxyColonies.systems:
+		sys.known = false
+	_reveal_around(capital.position, HOME_HORIZON)
 	_seed_capital()
 	corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # state-chartered survey service
 
@@ -194,6 +204,7 @@ func found_outpost(c : ColonyMarket) -> bool:
 		return false
 	donor.pop -= Corporation.OUTPOST_SETTLERS
 	c.settle(Corporation.OUTPOST_SETTLERS)
+	_reveal_around(c.position, COLONY_HORIZON)
 	c.growth_enabled = growth_enabled
 	markets.append(c)
 	settlements += 1
@@ -232,6 +243,7 @@ func _state_colonize() -> void:
 	near.stock[Goods.PARTS] = maxf(0.0, near.stock[Goods.PARTS] - STATE_HABITAT_PARTS)
 	donor.pop -= STATE_SETTLERS
 	best.settle(STATE_SETTLERS)
+	_reveal_around(best.position, COLONY_HORIZON)
 	best.growth_enabled = growth_enabled
 	best.local_cash = STATE_GRANT
 	for g in best.claims:                # the state buys out the surveyors' claims at the going price
@@ -247,11 +259,42 @@ func _state_colonize() -> void:
 	state_spent += cost
 	shipment_made.emit(donor, best, Goods.FOOD, STATE_SETTLERS)
 
+func _reveal_around(pos : Vector2, radius : float) -> int:
+	var n : int = 0
+	for sys in GalaxyColonies.systems:
+		if not sys.known and sys.position.distance_to(pos) <= radius:
+			sys.known = true; n += 1
+	return n
+
+static func is_known(c : ColonyMarket) -> bool:
+	return c.system == null or c.system.known
+
+## A random event (probe report, navigation breakthrough, strange signal...) charts a whole dark sector.
+## More likely as known space runs out of unsurveyed bodies, so booms tend to arrive when surveyors go idle.
+func _maybe_discover_sector() -> void:
+	var known_n : int = 0; var surveyed_n : int = 0
+	var dark : Array = []
+	for sys in GalaxyColonies.systems:
+		if sys.known:
+			for c in sys.bodies:
+				known_n += 1
+				if c.surveys > 0: surveyed_n += 1
+		else:
+			dark.append(sys)
+	if dark.is_empty():
+		return
+	var exhaustion : float = float(surveyed_n) / maxf(known_n, 1.0)
+	if randf() >= SECTOR_BASE_CHANCE + SECTOR_EXHAUSTED_CHANCE * pow(exhaustion, 3.0):
+		return
+	var centre : SystemNode = dark[randi() % dark.size()]
+	_reveal_around(centre.position, SECTOR_RADIUS)
+	sector_events += 1
+
 ## Order first surveys of unexplored planets, up to the yearly budget.
 func _order_surveys() -> void:
 	var unexplored : int = 0
 	for c in frontier:
-		if c.surveys == 0: unexplored += 1
+		if c.surveys == 0 and is_known(c): unexplored += 1
 	var n : int = mini(unexplored - survey_backlog, int(treasury * SURVEY_BUDGET_SHARE / SURVEY_ORDER_PRICE))
 	if n > 0:
 		survey_backlog += n
@@ -314,6 +357,7 @@ func _tick(t : int) -> void:
 			shipment_made.emit(m["from"], m["to"], m["good"], m["qty"])
 	if colonize:
 		_migrate()
+		_maybe_discover_sector()
 		if state_colonization and t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1:
 			_state_colonize()
 			_order_surveys()
@@ -423,7 +467,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent,surveys_ordered,survey_backlog,survey_losses,systems_settled"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent,surveys_ordered,survey_backlog,survey_losses,systems_settled,known_systems,sector_events"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -478,4 +522,4 @@ func metrics_row() -> String:
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f,%d,%d,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent, surveys_ordered, survey_backlog, slost, sys_settled]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f,%d,%d,%d,%d,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent, surveys_ordered, survey_backlog, slost, sys_settled, GalaxyColonies.systems.filter(func(x): return x.known).size(), sector_events]
