@@ -126,3 +126,10 @@ Result (600 ticks, 100 planets): the fleet jumps to class 4 (48 units) within ~4
 Finding: hold size is not the bottleneck. A voyage is one delivery per tick and each pickup is limited to half the source stock, so what matters is deliveries per tick,
 and bigger hulls just run half-empty. Next: let a ship serve several lanes per tick (or voyages take multiple ticks by distance), then add the cost brake.
 Data: `docs/economy_results/run_ship_classes.csv`.
+
+## Sailing-time budget for Freight
+A ship no longer makes exactly one delivery per tick: the fleet has `(1+ships) * SHIP_TIME` sailing time per tick and each delivery costs its lane distance + `LOAD_TIME`, so short lanes allow several deliveries per ship.
+Growth needs busy sailing time (>85%), hold fill > `GROW_FILL` (0.15) and a payback check on the *marginal* delivery's profit. Data: `docs/economy_results/run_time_budget.csv`.
+Result (600 ticks, 100 planets): matches the uncapped run (pop ~10,800, 97-100 colonies with jobs, Water ~12) but ships still grow ~1 per tick to ~590.
+The payback brake never bites: a marginal delivery earns (price spread x up to 48 units) against ~4 upkeep, so every extra ship pays back in a few ticks. Persistent price spreads
+(Parts ~80 everywhere) keep Freight hugely profitable, so a rising per-ship cost or fleet-size friction (ports, crews, congestion) is needed.
