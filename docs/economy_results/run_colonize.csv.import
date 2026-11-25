@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://uh5a5pp5pwu8"
+
+[deps]
+
+files=["res://docs/economy_results/run_colonize.pop.translation", "res://docs/economy_results/run_colonize.colonies.translation", "res://docs/economy_results/run_colonize.id.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.extractors.translation", "res://docs/economy_results/run_colonize.producers.translation", "res://docs/economy_results/run_colonize.freight.translation", "res://docs/economy_results/run_colonize.facilities.translation", "res://docs/economy_results/run_colonize.ships.translation", "res://docs/economy_results/run_colonize.promotions.translation", "res://docs/economy_results/run_colonize.attractions.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.upgrades.translation", "res://docs/economy_results/run_colonize.hydro.translation", "res://docs/economy_results/run_colonize.food.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.water.translation", "res://docs/economy_results/run_colonize.ship.translation", "res://docs/economy_results/run_colonize.port.translation", "res://docs/economy_results/run_colonize.settled.translation", "res://docs/economy_results/run_colonize.surveyed.translation", "res://docs/economy_results/run_colonize.survey.translation", "res://docs/economy_results/run_colonize.settlements.translation", "res://docs/economy_results/run_colonize.claims.translation"]
+
+source_file="res://docs/economy_results/run_colonize.csv"
+dest_files=["res://docs/economy_results/run_colonize.pop.translation", "res://docs/economy_results/run_colonize.colonies.translation", "res://docs/economy_results/run_colonize.id.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.extractors.translation", "res://docs/economy_results/run_colonize.producers.translation", "res://docs/economy_results/run_colonize.freight.translation", "res://docs/economy_results/run_colonize.facilities.translation", "res://docs/economy_results/run_colonize.ships.translation", "res://docs/economy_results/run_colonize.promotions.translation", "res://docs/economy_results/run_colonize.attractions.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.upgrades.translation", "res://docs/economy_results/run_colonize.hydro.translation", "res://docs/economy_results/run_colonize.food.translation", "res://docs/economy_results/run_colonize.avg.translation", "res://docs/economy_results/run_colonize.water.translation", "res://docs/economy_results/run_colonize.ship.translation", "res://docs/economy_results/run_colonize.port.translation", "res://docs/economy_results/run_colonize.settled.translation", "res://docs/economy_results/run_colonize.surveyed.translation", "res://docs/economy_results/run_colonize.survey.translation", "res://docs/economy_results/run_colonize.settlements.translation", "res://docs/economy_results/run_colonize.claims.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

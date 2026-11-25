@@ -10,6 +10,9 @@ func _initialize() -> void:
 	var ticks : int = 600
 	var colonize : bool = false
 	var sim_taxes : bool = true
+	var sim_state : bool = true
+	var planets : int = 100
+	var nsys : int = 0
 	var sim_seed : int = 7
 	for a in OS.get_cmdline_user_args():
 		if a == "growth=0":
@@ -18,6 +21,12 @@ func _initialize() -> void:
 			gc.food_mult = float(a.get_slice("=", 1))
 		elif a.begins_with("seed="):
 			sim_seed = int(a.get_slice("=", 1))
+		elif a.begins_with("systems="):
+			nsys = int(a.get_slice("=", 1))
+		elif a.begins_with("planets="):
+			planets = int(a.get_slice("=", 1))
+		elif a == "state=0":
+			sim_state = false
 		elif a == "taxes=0":
 			sim_taxes = false
 		elif a == "colonize=1":
@@ -27,12 +36,14 @@ func _initialize() -> void:
 	var sim = load("res://economy_proto/economy_sim.gd").new()
 	sim.use_galaxy = true
 	sim.all_planets = true
-	sim.galaxy_colonies = 100
+	sim.galaxy_colonies = planets
+	sim.galaxy_systems = nsys
 	sim.max_corps = 60
 	sim.growth_enabled = growth
 	sim.auto_run = false
 	sim.colonize = colonize
 	sim.taxes = sim_taxes
+	sim.state_colonization = sim_state
 	sim.rng_seed = sim_seed
 	root.add_child(sim)
 	sim.setup()
@@ -42,8 +53,18 @@ func _initialize() -> void:
 			food_sites += 1
 	print("INFO,food_mult=", gc.food_mult, ",food_sites=", food_sites)
 	print("CSV,", sim.METRIC_HEADER)
+	print("INFO,systems=", gc.systems.size(), ",bodies=", sim.frontier.size() + 1)
+	var wall0 : int = Time.get_ticks_msec()
+	var decade0 : int = wall0
 	for t in ticks:
 		sim.step()
 		if t % 4 == 3:
 			print("CSV,", sim.metrics_row())
+		if t % 120 == 119:
+			var now : int = Time.get_ticks_msec()
+			print("TIME,decade=%d,ms_per_tick=%.1f,colonies=%d" % [(t + 1) / 120, (now - decade0) / 120.0, sim.markets.size()])
+			decade0 = now
+	print("TIME,total_s=%.1f" % ((Time.get_ticks_msec() - wall0) / 1000.0))
+	for k in sim.prof:
+		print("PROFILE,%s,%.1f" % [k, sim.prof[k] / 1000.0])
 	quit()

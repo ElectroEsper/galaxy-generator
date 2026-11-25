@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://cy04wpksp5afn"
+
+[deps]
+
+files=["res://docs/economy_results/run_growth0.pop.translation", "res://docs/economy_results/run_growth0.colonies.translation", "res://docs/economy_results/run_growth0.id.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.extractors.translation", "res://docs/economy_results/run_growth0.producers.translation", "res://docs/economy_results/run_growth0.freight.translation", "res://docs/economy_results/run_growth0.facilities.translation", "res://docs/economy_results/run_growth0.ships.translation", "res://docs/economy_results/run_growth0.promotions.translation", "res://docs/economy_results/run_growth0.attractions.translation"]
+
+source_file="res://docs/economy_results/run_growth0.csv"
+dest_files=["res://docs/economy_results/run_growth0.pop.translation", "res://docs/economy_results/run_growth0.colonies.translation", "res://docs/economy_results/run_growth0.id.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.avg.translation", "res://docs/economy_results/run_growth0.extractors.translation", "res://docs/economy_results/run_growth0.producers.translation", "res://docs/economy_results/run_growth0.freight.translation", "res://docs/economy_results/run_growth0.facilities.translation", "res://docs/economy_results/run_growth0.ships.translation", "res://docs/economy_results/run_growth0.promotions.translation", "res://docs/economy_results/run_growth0.attractions.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

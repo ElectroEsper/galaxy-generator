@@ -41,7 +41,10 @@ func _on_shipment(a : ColonyMarket, b : ColonyMarket, good : int, qty : float) -
 	var s := Ship.new()
 	s.from_pos = a.position; s.to_pos = b.position; s.good = good; s.qty = qty
 	ships.append(s)
-	var key : String = "%s-%s" % [a.name, b.name] if a.name < b.name else "%s-%s" % [b.name, a.name]
+	if a.system == null or b.system == null or a.system == b.system:
+		return
+	var na : String = a.system.name; var nb : String = b.system.name
+	var key : String = "%s|%s" % [na, nb] if na < nb else "%s|%s" % [nb, na]
 	lane_heat[key] = minf(lane_heat.get(key, 0.0) + 1.0, 8.0)
 
 func _unhandled_key_input(e : InputEvent) -> void:
@@ -71,39 +74,40 @@ func _shortage(c : ColonyMarket) -> float:
 func _draw() -> void:
 	var font : Font = ThemeDB.fallback_font
 	var markets : Array[ColonyMarket] = sim.markets
-	# Lanes
-	for i in markets.size():
-		for j in range(i + 1, markets.size()):
-			var a : ColonyMarket = markets[i]; var b : ColonyMarket = markets[j]
-			var heat : float = lane_heat.get("%s-%s" % [a.name, b.name], 0.0)
-			draw_line(a.position, b.position, Color(0.4, 0.5, 0.7, 0.12 + heat * 0.08), 1.0 + heat * 0.5)
-	# Frontier: grey dot = never surveyed, ring = surveyed (gold if a deposit is known, unsold claim = filled)
-	for c in sim.frontier:
-		if c.settled:
+	var sys_pos : Dictionary = {}
+	for sys in GalaxyColonies.systems: sys_pos[sys.name] = sys.position
+	# Lanes between star systems that trade (heat = recent traffic)
+	for key in lane_heat:
+		var heat : float = lane_heat[key]
+		if heat <= 0.0 or not sys_pos.has(key.get_slice("|", 0)) or not sys_pos.has(key.get_slice("|", 1)):
 			continue
-		if c.surveys == 0:
-			draw_circle(c.position, 2.5, Color(0.55, 0.55, 0.6, 0.5))
-		else:
-			var known : bool = not c.richness.is_empty()
-			var rc : Color = Color(0.95, 0.8, 0.35, 0.9) if known else Color(0.6, 0.65, 0.75, 0.6)
-			if not c.claims.is_empty():
-				draw_circle(c.position, 3.0, rc)
-			draw_arc(c.position, 5.0, 0.0, TAU, 16, rc, 1.2)
-	# Colonies
-	for c in markets:
-		var r : float = 8.0 + sqrt(c.pop) * 0.9
-		var col : Color = Color(0.3, 0.8, 0.4).lerp(Color(0.95, 0.3, 0.25), _shortage(c))
-		draw_circle(c.position, r + 3.0, Color(col, 0.18))
-		draw_circle(c.position, r, col)
-		draw_arc(c.position, r, 0.0, TAU, 32, Color(1, 1, 1, 0.5), 1.5)
-		draw_string(font, c.position + Vector2(-r, -r - 8.0), "%s  pop %d  jobs %d" % [c.name, c.pop, c.jobs], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
-		if c.planet_label != "":
-			draw_string(font, c.position + Vector2(-r, r + 30.0), c.planet_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 0.75, 0.9))
-		var tags : Array[String] = []
-		for g in c.richness:
-			tags.append("%s x%.1f" % [GOOD_NAMES[g], c.richness[g]])
-		if not tags.is_empty():
-			draw_string(font, c.position + Vector2(-r, r + 16.0), ", ".join(tags), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 0.85, 0.9))
+		draw_line(sys_pos[key.get_slice("|", 0)], sys_pos[key.get_slice("|", 1)], Color(0.4, 0.5, 0.7, 0.15 + heat * 0.08), 1.0 + heat * 0.5)
+	# Star systems: the map's nodes. Unsettled = small star (grey if nothing surveyed, gold ring if deposits are known);
+	# settled = disc sized by population, coloured by Food/Parts supply, with "colonies/bodies" and population.
+	for sys in GalaxyColonies.systems:
+		if not sys.known:
+			draw_circle(sys.position, 1.5, Color(0.4, 0.4, 0.45, 0.25))   # dark: not yet charted
+			continue
+		var settled : Array = sys.settled_bodies()
+		var surveyed : int = sys.surveyed_count()
+		if settled.is_empty():
+			var known : bool = sys.bodies.any(func(c): return not c.richness.is_empty())
+			var sc : Color = Color(0.55, 0.55, 0.62, 0.6) if surveyed == 0 else Color(0.75, 0.78, 0.85, 0.85)
+			draw_circle(sys.position, 2.5, sc)
+			if known:
+				draw_arc(sys.position, 5.5, 0.0, TAU, 16, Color(0.95, 0.8, 0.35, 0.9), 1.2)
+			continue
+		var pop : float = sys.population()
+		var short : float = 0.0
+		for c in settled: short += _shortage(c) / settled.size()
+		var r : float = 7.0 + sqrt(pop) * 0.6
+		var col : Color = Color(0.3, 0.8, 0.4).lerp(Color(0.95, 0.3, 0.25), short)
+		draw_circle(sys.position, r + 3.0, Color(col, 0.18))
+		draw_circle(sys.position, r, col)
+		var is_cap : bool = settled.has(sim.capital)
+		draw_arc(sys.position, r, 0.0, TAU, 32, Color(1, 0.9, 0.5, 0.9) if is_cap else Color(1, 1, 1, 0.5), 2.0 if is_cap else 1.2)
+		var label : String = "%s%s  %d/%d  pop %d" % ["Capital system " if is_cap else "", sys.name, settled.size(), sys.bodies.size(), pop]
+		draw_string(font, sys.position + Vector2(-r, -r - 6.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
 	# Ships
 	for s in ships:
 		var dir : Vector2 = (s.to_pos - s.from_pos).normalized()
@@ -118,8 +122,8 @@ func _draw() -> void:
 		var n : String = Corporation.Kind.find_key(k.kind)
 		kinds[n] = kinds.get(n, 0) + 1
 		cash_total += k.cash
-	draw_string(font, Vector2(16, 24), "%s (tick %d)   colonies %d   surveyed %d   corps %s   ships in transit %d" % [sim.date_label(), sim.tick_count, markets.size(), sim.frontier.filter(func(c): return c.surveys > 0).size(), kinds, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
-	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f   colour: green = supplied, red = Food/Parts shortage" % speed_mult, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
+	draw_string(font, Vector2(16, 24), "%s (tick %d)   colonies %d (%d systems)   surveyed %d   corps %s   ships in transit %d" % [sim.date_label(), sim.tick_count, markets.size(), GalaxyColonies.systems.filter(func(s): return not s.settled_bodies().is_empty()).size(), sim.frontier.filter(func(c): return c.surveys > 0).size(), kinds, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f   node = star system (n/m = colonies/bodies), colour: green supplied, red short; gold ring = known deposits" % speed_mult, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
 	var lx : float = 16.0
 	for g in Goods.ALL:
 		draw_rect(Rect2(Vector2(lx, 52), Vector2(10, 10)), GOOD_COLORS[g])

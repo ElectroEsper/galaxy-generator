@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://br1dwx06wgco5"
+
+[deps]
+
+files=["res://docs/economy_results/run_salvage_1200.pop.translation", "res://docs/economy_results/run_salvage_1200.colonies.translation", "res://docs/economy_results/run_salvage_1200.id.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.extractors.translation", "res://docs/economy_results/run_salvage_1200.producers.translation", "res://docs/economy_results/run_salvage_1200.freight.translation", "res://docs/economy_results/run_salvage_1200.facilities.translation", "res://docs/economy_results/run_salvage_1200.ships.translation", "res://docs/economy_results/run_salvage_1200.promotions.translation", "res://docs/economy_results/run_salvage_1200.attractions.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.upgrades.translation", "res://docs/economy_results/run_salvage_1200.hydro.translation", "res://docs/economy_results/run_salvage_1200.food.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.water.translation", "res://docs/economy_results/run_salvage_1200.ship.translation", "res://docs/economy_results/run_salvage_1200.port.translation"]
+
+source_file="res://docs/economy_results/run_salvage_1200.csv"
+dest_files=["res://docs/economy_results/run_salvage_1200.pop.translation", "res://docs/economy_results/run_salvage_1200.colonies.translation", "res://docs/economy_results/run_salvage_1200.id.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.extractors.translation", "res://docs/economy_results/run_salvage_1200.producers.translation", "res://docs/economy_results/run_salvage_1200.freight.translation", "res://docs/economy_results/run_salvage_1200.facilities.translation", "res://docs/economy_results/run_salvage_1200.ships.translation", "res://docs/economy_results/run_salvage_1200.promotions.translation", "res://docs/economy_results/run_salvage_1200.attractions.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.upgrades.translation", "res://docs/economy_results/run_salvage_1200.hydro.translation", "res://docs/economy_results/run_salvage_1200.food.translation", "res://docs/economy_results/run_salvage_1200.avg.translation", "res://docs/economy_results/run_salvage_1200.water.translation", "res://docs/economy_results/run_salvage_1200.ship.translation", "res://docs/economy_results/run_salvage_1200.port.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

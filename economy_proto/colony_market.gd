@@ -30,6 +30,8 @@ var shortfall_signal : float = 0.0 # smoothed price premium of pop goods -> corp
 ## When true, the sim moves people between colonies (zero-sum migration) instead of colonies conjuring migrants.
 static var external_migration : bool = false
 var settled : bool = true
+var system = null                     # SystemNode this body belongs to
+var body_radius : float = 1.0          # size of the body (drives survey time)
 var site_score : float = 0.0          # how attractive the planet looks as a home (picks the Capital World)
 var hidden_richness : Dictionary = {} # true richness; `richness` holds only what surveys have revealed
 var found_frac : Dictionary = {}      # revealed share of each good's true richness
@@ -166,6 +168,7 @@ func reveal(g : int, amount : float) -> float:
 	richness[g] = nv
 	found_frac[g] = nv / maxf(r, 0.001)
 	if settled:
+		Corporation.reg_cache.clear()
 		capacity[g] += (nv - old) * 0.25      # the local business starts working the new find
 	return nv - old
 
@@ -173,5 +176,6 @@ func reveal(g : int, amount : float) -> float:
 func settle(settlers : float) -> void:
 	settled = true
 	pop = settlers
+	Corporation.reg_cache.clear()
 	for g in richness:
 		capacity[g] += local_output(g)

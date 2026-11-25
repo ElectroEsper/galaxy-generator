@@ -228,3 +228,90 @@ Result, 4 seeds, 50 years, vs taxes-only (`fig14_construction.png`, `run_build_s
 - Fewer facilities on 3 of 4 seeds (434->325, 222->198, 677->465; 374->393), population a bit lower (2,013->1,352, 2,069->1,816, 2,081->1,790; seed 11 879->1,041).
 - Corporate cash 3-6x lower (4.6M -> 0.8M on seed 7), treasury 1.7-3.8M: capital now binds.
 - Parts is the scarce good again (~55-65 vs ~16-24), because construction competes with consumers and maintenance for it.
+
+## State-funded colonization (`state_colonization`, default on; `state=0` on the CSV runner to disable)
+Once a year the colonial office picks the surveyed, unsettled planet that best fills the economy's gaps: known deposits weighted by how scarce each good is (average price / base),
+plus room to grow (max_pop), divided by distance from the nearest colony. It pays from the treasury (only if it holds 2x the cost): passage for 40 settlers
+(from a colony of 100+), habitat materials (30 Metal + 12 Parts from the nearest colony's shelf, at its prices), a 60 grant to the new colony's local business
+(promotion to a corporation happens at 80) and any surveyor claims. Metrics: `state_colonies`, `state_spent`.
+Two fixes found on the way (both also apply without the state):
+- A corporation in trouble (cash < 0) now closes its worst loss-maker each month instead of carrying idle plants into bankruptcy.
+- No new capacity or upgrades for a good while more than 30% of the corporation's own plants making it are losing money (inputs too dear, not demand too low).
+  Before this, the only Producer kept building Metal plants while ~200 of its 218 sat idle for lack of Ore, went bankrupt and took the whole Metal/Parts chain with it (seed 31, year 41).
+Result, 4 seeds, 50 years, vs companies only (`fig15_state_colonization.png`, `run_state_s<seed>_t1.csv`):
+- ~1 state colony a year (46-49), 50-58 colonies by year 50 vs 12-21; the first 10 colonies by year ~10 instead of years 10-45.
+- Population higher on every seed (2,180/1,960/2,400/2,450 vs 1,350/1,040/1,820/1,790); facilities similar.
+- Cheap: 40-80k spent of a treasury that still ends at 2.5-3.4M (more colonies -> more tax).
+Open: seed 11 loses most of its industry between years 30 and 40 without going bankrupt: Metal gluts in some colonies while Parts plants elsewhere idle on dear local Metal
+(a distribution problem). New 200-cash founders can't afford construction at Parts ~50-100 and go bankrupt quickly. The state's pace is fixed at one colony a year.
+
+## 500 planets (`planets=500`, seed 7, 50 years; `fig16_500_planets.png`, `run_500_state.csv`, `run_500_nostate.csv`)
+Almost identical to 100 planets: with the state, 50 colonies (vs 53), pop 2,430 (vs 2,180); companies only, 16 colonies and pop 1,660.
+Only 94 of 500 planets get surveyed in 50 years, the same ~2 a year as on the 100-planet map: survey capacity, not galaxy size, sets the pace.
+Surveyors stay at 1-2 ships because they stop buying ships while 6 finds are unsold, and claims sell slowly (the state's colonies void them without paying).
+Companies-only shows a population dip around year 24 (Parts shortage) that the state's colonies avoid.
+
+## State survey orders and paid claims
+- State colonies now pay the surveyors' claims at the going price (they used to void them).
+- Once a year the state orders first surveys of unexplored planets, committing up to 5% of the treasury, at 80 per survey (paid on completion, instead of the flat 20).
+  A Surveyor buys ships while the order backlog is bigger than its fleet can clear in a year, and sells ships when it runs short of cash with no orders left.
+Result, seed 7 (`fig17_survey_orders.png`, `run_500_surveys.csv`, `run_100_surveys.csv`):
+- 500 planets: all surveyed by year ~17 (was 94 by year 50); the fleet peaks at 50 ships, then sells down to 12. Claims sold 1 -> 111. Colonies 50 -> 64, pop 2,430 -> 2,700, Parts ~44 -> ~28.
+- 100 planets: map surveyed by year ~10; claims sold 1 -> 61; colonies 53 -> 54, pop 2,180 -> 2,390.
+Open: the survey boom may be too fast (5%/year of a growing treasury = 485 orders on the 500 map); on 100 planets facilities fall from ~275 (year 20) to ~150 (year 50) while population keeps rising - to investigate.
+
+## Star systems on the map; survey time by body size; survey ship losses
+- The map's nodes are now **star systems** (`SystemNode`: name, position, star class, bodies). Planets, giants and belts are colonies/frontier *inside* a system:
+  they share the system's map position, and travel between bodies of one system is a short hop (`INTRA_SYSTEM_DIST` 0.4 vs 1 + distance/200 between systems).
+  The 2D view draws one node per system: grey star = unsurveyed, gold ring = known deposits, disc = settled (size = population, "n/m" = colonies/bodies,
+  colour = Food/Parts supply), the Capital system outlined in gold; trade lanes only between systems (`view_systems.png`).
+- **Survey time scales with the body**: 2 + 4 x radius^0.6 months, capped at 24 (Earth-sized ~6 months, giants ~19, belts by their ring size).
+- **Surveying is dangerous**: a ship is lost on 3% of surveys (+4% around giants, +3% in belts), with its findings; the last vessel is replaced at a cost.
+- A Surveyor can commission at most one new ship every 6 months.
+Result, seed 7 (`run_500_systems.csv`, `run_100_systems.csv`): 500 planets surveyed 74 by year 10, 299 by year 20, all by ~year 35 (was all by year 17);
+fleet peaks at ~19 ships (was 50); 45 ships lost in 50 years. 53 colonies in 20 systems, pop 2,600. 100 planets: 51 colonies in 7 systems, pop 2,550.
+Open (now the main problem): facilities fall after year ~20 (500: 193 -> 113; 100: 190 -> 88) while population rises, and Parts climbs to 50-60.
+Traced on seed 7 / 100 planets: the Producer closes 39 of its 54 Metal plants around year 22 (chronic losers: Ore too dear for the Metal price), Parts follows,
+it goes bankrupt at year ~27, and the 200-cash founders that replace it can't afford construction materials, so the Metal/Parts chain never rebuilds.
+
+## Known space and sector discoveries (exploration booms)
+Only systems within 160 px of the Capital are charted at the start; each newly settled system charts systems within 110 px; uncharted systems can't be surveyed,
+settled or ordered surveys. A random **sector discovery** (probe report, breakthrough, signal) charts every system within 140 px of a random dark one; its monthly chance is
+0.2% plus up to 4% as known space gets fully surveyed (cubic), so booms arrive when surveyors run out of work. Metrics: `known_systems`, `sector_events`.
+Result, 500 planets (= only ~46 star systems, ~11 bodies each), 100 years, seeds 7/23 (`fig18_exploration_booms.png`, `run_booms_s*.csv`):
+- One long boom, not several: 6-7 discoveries in years 12-29 chart the whole map by year ~30; survey fleets rise to ~27 ships, then fall to 1 by year ~55.
+- The map is too small for repeated booms: each discovery charts ~5-15 of 46 systems. A bigger galaxy (the scaling test) or smaller sectors should give distinct waves.
+- Colonies keep growing for the whole century (113 / 151 by year 100, pop 6,400 / 7,300).
+The old all-planets-settled mode still runs after the star-system change (checked 120 ticks).
+
+## Scaling test and profiling (`systems=N`; output `TIME,` and `PROFILE,` lines)
+`systems=N` generates exactly N star systems with all their bodies, on a map scaled so star density stays the same. The runner prints ms per tick each decade
+and cumulative time per tick phase. Runs: 25 / 50 / 100 / 200 systems (290 / 547 / 1,053 / 2,150 bodies), 50 years, colonize + state (`fig19_scaling.png`, `docs/economy_results/scaling/`).
+- **Cost follows colonies, not galaxy size.** Every size ends with ~50-53 colonies (the state's one-a-year pace dominates), and ms/tick climbs with them:
+  ~4 at 10 colonies, ~30 at 20, ~85 at 30, ~170 at 40, ~490-590 at ~52 (faster than quadratic). 25 systems is cheaper only late (225 ms).
+- **Extractors are 90-95% of the time** (98 s of 106 s at 100 systems): ~56 Extractor corporations (most idle) each re-evaluate every colony x good and every
+  outpost candidate each month, and each evaluation summed every market (regional use/capacity) and searched for the nearest colony and a settler donor.
+- Surveyors scale with body count (1 s at 25 systems -> 7 s at 200); freight, producers, markets and the state are small.
+- **Fix 1 (done):** cache regional sums (invalidated when a facility registers / markets tick), nearest-colony and settler-donor lookups per tick, and the outpost-candidate
+  list. Results are bit-identical; 100 systems: 106 s -> 27 s, 588 -> 120 ms/tick at 53 colonies.
+- **Next:** the evaluation is still repeated per corporation although it's the same for all of them except cash. A shared per-tick "opportunity board"
+  (rank options once, corporations take the best they can afford) should remove most of the rest, and suits the idle-Extractor problem too.
+- Exploration at 100-200 systems over 50 years is still one rising boom (fleet 1 -> 30-35 ships, 9-14 sector discoveries); waves would need a longer run.
+
+## Opportunity board (shared evaluation)
+New-facility and outpost options are the same for every corporation of a kind, so they're now ranked once into an "opportunity board" (per kind, rebuilt whenever
+capacity, claims or the set of colonies change; cached with the regional sums). Each corporation walks the board best-payback-first and takes the first option it can
+afford that isn't a good its own plants are idling on, then compares it with its own upgrade options. The scan helpers became static functions.
+- Output is **identical** to the original uncached run (full CSV diff). 100 systems, 50 years: 106 s -> 27 s (caches) -> **9 s** (board); ~31 ms per month at 53 colonies.
+- 200 systems, 100 years: 69 s total; ms per month grows roughly linearly with colonies now (~1 ms per colony: 4 ms at 10, 58 at 63, 126 at 120).
+  Remaining time: Extractors 39 s (own upgrades + facility runs), Surveyors 19 s (target scan over every body), Freight 4 s, Producers 3 s.
+- Exploration on that run: survey fleet 2 -> ~37 ships by year 70, then 11 by year 100; 31 sector discoveries spread over years 11-97, so it is one long boom
+  rather than waves (discoveries keep coming as each new sector is surveyed fast). Waves would need discoveries to wait for a sector to be finished, or rarer events.
+
+## 1,000 star systems (10,752 bodies), 100 years
+- First run (opportunity board): 130 s total. Surveyors had become the biggest cost (74 s, 57%) because each free ship scanned all 10,752 bodies, charted or not.
+- Surveyors now scan only bodies in charted systems (`known_frontier()`, rebuilt when space is charted; same order, so output is **identical**): **80 s** total,
+  surveyors 74 s -> 25 s. Extractors (40 s) are the main cost again.
+- ms per month: 14 at 10 colonies, 52 at 51, 82 at 76, 178 at 101 (vs 126 at 120 colonies on 200 systems).
+- Outcome: 101 colonies in 58 systems, pop 5,750; only 267 of 1,000 systems charted and 2,754 bodies surveyed by year 100, so exploration
+  would carry on for centuries; survey fleet 2 -> ~40 ships, 22 sector discoveries; treasury 9.2M; Parts ~90 and Food ~33 (supply strained at this pace).
