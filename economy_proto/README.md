@@ -244,3 +244,9 @@ Result, 4 seeds, 50 years, vs companies only (`fig15_state_colonization.png`, `r
 - Cheap: 40-80k spent of a treasury that still ends at 2.5-3.4M (more colonies -> more tax).
 Open: seed 11 loses most of its industry between years 30 and 40 without going bankrupt: Metal gluts in some colonies while Parts plants elsewhere idle on dear local Metal
 (a distribution problem). New 200-cash founders can't afford construction at Parts ~50-100 and go bankrupt quickly. The state's pace is fixed at one colony a year.
+
+## 500 planets (`planets=500`, seed 7, 50 years; `fig16_500_planets.png`, `run_500_state.csv`, `run_500_nostate.csv`)
+Almost identical to 100 planets: with the state, 50 colonies (vs 53), pop 2,430 (vs 2,180); companies only, 16 colonies and pop 1,660.
+Only 94 of 500 planets get surveyed in 50 years, the same ~2 a year as on the 100-planet map: survey capacity, not galaxy size, sets the pace.
+Surveyors stay at 1-2 ships because they stop buying ships while 6 finds are unsold, and claims sell slowly (the state's colonies void them without paying).
+Companies-only shows a population dip around year 24 (Parts shortage) that the state's colonies avoid.
