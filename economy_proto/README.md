@@ -358,3 +358,10 @@ Tried splitting the board into a shared market part and per-empire outposts: no 
   nearest-colony / donor lookups are cached per star system (its bodies share one map position).
 - 4 empires, 200 systems, 100 years: 402 s -> **207 s**, output identical (full CSV + EMP diff); 1 empire, 100 systems, 50 years: 10.3 s -> 8.0 s, identical.
   Remaining: extractors 94 s (outpost base 35 s, ordinary board 33 s), freight 45 s, surveyors 27 s, producers 23 s.
+
+## Territory on the map
+The 2D view now starts with 4 empires on a 46-system galaxy (one screen). Each empire's systems claim the space within 70 px (nearest claimed system wins),
+drawn as a tinted area with a border in the empire's colour; settled systems use their empire's colour (reddened when short of Food/Parts). The layer is
+rendered to a small image and rebuilt only when a system changes hands. A legend lists each empire's colonies, systems, population and treasury.
+`docs/economy_results/view_territory.png`: year 40 - empires 2 (blue) and 4 (green) hold the flanks, 1 (gold) and 3 (red) are squeezed into the centre,
+where borders interleave system by system.
