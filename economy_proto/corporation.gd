@@ -85,6 +85,7 @@ class Facility:
 		return 0.4 + 0.2 * level
 
 var kind : Kind
+var empire = null               # Empire it belongs to (taxed there); may trade and build in any colony
 var cash : float
 var facilities : Array[Facility] = []
 var ships : int = 0
@@ -99,8 +100,8 @@ var fill : float = 0.0          # average hold fill on those voyages
 var moved : float = 0.0
 var last_moves : Array = []       # shipments made this tick (for the visual layer)
 
-func _init(k : Kind, starting_cash : float) -> void:
-	kind = k; cash = starting_cash
+func _init(k : Kind, starting_cash : float, e = null) -> void:
+	kind = k; cash = starting_cash; empire = e
 
 ## A local business graduating into a corporation: first facility is at home.
 func seed_facility(c : ColonyMarket, g : int, recipe : bool = false) -> void:
@@ -141,12 +142,15 @@ func dissolve() -> void:
 ## Regional totals are asked for thousands of times a tick, so they're cached: `use` only changes when markets tick
 ## (the sim clears the cache each tick), `capacity` entries are dropped whenever a facility is (un)registered.
 static var reg_cache : Dictionary = {}
+static var sub_prof : Dictionary = {}   # profiling: operate vs review time per kind (usec)
 
 ## Every new-facility and outpost option for a kind of corporation, best payback first (stable: ties keep scan order).
-static func _opportunity_board(markets : Array[ColonyMarket], k : Kind) -> Array:
-	var key : String = "board%d:%d" % [k, markets.size()]
+static func _opportunity_board(markets : Array[ColonyMarket], k : Kind, e = null) -> Array:
+	var key : String = "board%d:%d:%d" % [k, markets.size(), e.id if e != null else -1]
 	if reg_cache.has(key):
 		return reg_cache[key]
+	var tb : int = Time.get_ticks_usec()
+	sub_prof["board_builds"] = sub_prof.get("board_builds", 0) + 1000   # shows as a count in the PROFILE line
 	var opts : Array = []
 	var as_recipe : bool = k == Kind.PRODUCER
 	for c in markets:
@@ -167,27 +171,34 @@ static func _opportunity_board(markets : Array[ColonyMarket], k : Kind) -> Array
 			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
 			var cost_n : float = CAPEX + _materials_cost(c, 1.0)
 			if m > 0.0:
-				opts.append({"pb": cost_n / m, "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
+				opts.append({"pb": cost_n / m, "i": opts.size(), "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
 	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
-	if k == Kind.EXTRACTOR and world != null:
-		for c in world.frontier_candidates():
-			if c.settled or not world.can_send_settlers(c):
+	# The per-outpost numbers that only change monthly come precomputed from the sim; demand and claim fees stay live.
+	if k == Kind.EXTRACTOR and world != null and e != null:
+		for row in world.outpost_base(e):
+			var c : ColonyMarket = row[0]
+			var g : int = row[1]
+			var q : float = row[2]
+			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
+			if unmet < q * 0.5:
 				continue
-			var near : ColonyMarket = world.nearest_settled(c)
-			for g in c.richness:
-				var q : float = c.richness[g]
-				var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
-				if unmet < q * 0.5:
-					continue
-				var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
-				var m : float = (near.price[g] - Goods.RAW_COST[g] - SHIP_COST * _dist(c, near, [])) * q * absorb - UPKEEP
-				var fee : float = CLAIM_PRICE * c.claims[g]["value"] if c.claims.has(g) else 0.0
-				var cost : float = CAPEX + OUTPOST_COST + fee + _materials_cost(near, 1.0, true)
-				if m > 0.0:
-					# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
-					opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
-	opts.sort_custom(func(x, y): return x["pb"] < y["pb"])
+			var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
+			var m : float = row[3] * q * absorb - UPKEEP
+			var cl : Dictionary = c.intel_for(e)["claims"]
+			var fee : float = CLAIM_PRICE * cl[g]["value"] if cl.has(g) else 0.0
+			var cost : float = row[4] + fee
+			if m > 0.0:
+				# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
+				opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "i": opts.size(), "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
+	# Native sort on [payback, scan index] pairs (fast, same order as the explicit tie-break), then reorder the options.
+	var keys : Array = []
+	for o in opts: keys.append([o["pb"], o["i"]])
+	keys.sort()
+	var sorted_opts : Array = []
+	for kk in keys: sorted_opts.append(opts[kk[1]])
+	opts = sorted_opts
 	reg_cache[key] = opts
+	sub_prof["board_build_time"] = sub_prof.get("board_build_time", 0) + (Time.get_ticks_usec() - tb)
 	return opts
 
 static func _regional(markets : Array[ColonyMarket], field : String, g : int) -> float:
@@ -206,8 +217,14 @@ func run(markets : Array[ColonyMarket]) -> void:
 	elif kind == Kind.SURVEYOR:
 		_run_survey(markets)
 	else:
+		var t0 : int = Time.get_ticks_usec()
 		_run_facilities()
+		var t1 : int = Time.get_ticks_usec()
 		_review_and_expand(markets)
+		var t2 : int = Time.get_ticks_usec()
+		var kn : String = Kind.find_key(kind).to_lower()
+		sub_prof[kn + "_operate"] = sub_prof.get(kn + "_operate", 0) + (t1 - t0)
+		sub_prof[kn + "_review"] = sub_prof.get(kn + "_review", 0) + (t2 - t1)
 		idle_ticks = idle_ticks + 1 if facilities.is_empty() else 0
 	broke_ticks = broke_ticks + 1 if cash < 0.0 else 0
 
@@ -316,7 +333,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	# (the "opportunity board", rebuilt whenever capacity or markets change) and each corporation takes the best
 	# one it can afford that isn't a good its own plants are idling on.
 	var best_frontier : bool = false
-	for o in _opportunity_board(markets, kind):
+	for o in _opportunity_board(markets, kind, empire):
 		if o["pb"] >= best_payback:
 			break
 		if idle_share.get(o["g"], 0.0) > IDLE_BLOCK:
@@ -349,7 +366,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		upgrades += 1
 	elif best_new_c != null:
 		if best_frontier:
-			if not world.found_outpost(best_new_c):
+			if not world.found_outpost(best_new_c, empire):
 				return
 			cash -= OUTPOST_COST
 		cash -= CAPEX
@@ -523,27 +540,40 @@ static func loss_chance(c : ColonyMarket) -> float:
 var surveys_done : int = 0
 var claims_sold : int = 0
 
+## Claims on a body live in the knowledge of the empire that found them: the owner's for a settled colony,
+## otherwise the buyer's own empire (it can only build outposts where its own surveyors looked).
+func _claims_at(c : ColonyMarket) -> Dictionary:
+	var e = c.owner if (c.settled and c.owner != null) else empire
+	if e == null:
+		return c.claims
+	return c.intel_for(e)["claims"]
+
 func claim_fee(c : ColonyMarket, g : int) -> float:
-	return CLAIM_PRICE * c.claims[g]["value"] if c.claims.has(g) else 0.0
+	var cl : Dictionary = _claims_at(c)
+	return CLAIM_PRICE * cl[g]["value"] if cl.has(g) else 0.0
 
 ## The first extractor to work a surveyed deposit buys the claim from the surveyor who found it.
 func _buy_claim(c : ColonyMarket, g : int) -> void:
-	if not c.claims.has(g):
+	var cl : Dictionary = _claims_at(c)
+	if not cl.has(g):
 		return
-	var fee : float = claim_fee(c, g)
-	var owner : Corporation = c.claims[g]["owner"]
+	var fee : float = CLAIM_PRICE * cl[g]["value"]
+	var owner : Corporation = cl[g]["owner"]
 	cash -= fee
 	owner.cash += fee
 	owner.claims_sold += 1
-	c.claims.erase(g)
+	cl.erase(g)
 
 func unsold_claims() -> int:
 	var n : int = 0
-	if world == null:
+	if world == null or empire == null:
 		return 0
 	for c in world.frontier:
-		for g in c.claims:
-			if c.claims[g]["owner"] == self: n += 1
+		if not c.intel.has(empire.id):
+			continue
+		var cl : Dictionary = c.intel[empire.id]["claims"]
+		for g in cl:
+			if cl[g]["owner"] == self: n += 1
 	return n
 
 func _run_survey(markets : Array[ColonyMarket]) -> void:
@@ -566,10 +596,10 @@ func _run_survey(markets : Array[ColonyMarket]) -> void:
 		var t : ColonyMarket = _pick_survey_target(markets)
 		if t == null:
 			break
-		survey_jobs.append({"target": t, "eta": survey_months(t) + _dist(t, world.nearest_settled(t), markets) / SHIP_TIME})
+		survey_jobs.append({"target": t, "eta": survey_months(t) + _dist(t, world.nearest_settled(t, empire), markets) / SHIP_TIME})
 	cash -= SURVEY_UPKEEP * (1 + ships)
 	# Grow on speculation (few unsold finds) or on paid work (a backlog of state orders bigger than the fleet can clear in a year).
-	var ordered : int = world.survey_backlog if world != null else 0
+	var ordered : int = empire.survey_backlog if empire != null else 0
 	var per_ship_year : float = 12.0 / (SURVEY_MONTHS + 1.0)
 	if months_since_buy >= SHIP_BUY_MONTHS and cash > SURVEY_SHIP_COST * 4.0 and (unsold_claims() < MAX_UNSOLD_CLAIMS or ordered > (1 + ships) * per_ship_year):
 		cash -= SURVEY_SHIP_COST
@@ -581,39 +611,59 @@ func _run_survey(markets : Array[ColonyMarket]) -> void:
 
 ## Surveyors can't see true richness: an unsurveyed planet is worth a flat prior, a surveyed one a little
 ## less each time (they can't tell how much is left). Value per month of ship time, nearest first.
+## The survey board (one per empire): every body the empire may survey, ranked by value per month of ship time, built once
+## and reused until something that affects it changes (a survey completes, space is charted, a colony is founded, a new month).
+static func _build_survey_board(markets : Array[ColonyMarket], e) -> void:
+	var rows : Array = []
+	var i : int = 0
+	for c in world.known_frontier(e) + markets.filter(func(m): return m.owner == e):
+		var rich : Dictionary = c.known_rich(e)
+		var known : float = 0.0
+		for g in rich: known += rich[g]
+		var n : int = c.surveys_by(e)
+		var ev : float = 1.0 if n == 0 else 0.4 * known / float(n)
+		var v : float = ev / (survey_months(c) + _dist(c, world.nearest_settled(c, e), markets) / SHIP_TIME)
+		if v > 0.0:
+			rows.append([v, i, c])
+		i += 1
+	# Best first; equal values keep scan order (same pick as a linear scan with a strict '>').
+	rows.sort_custom(func(a, b): return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
+	e.survey_board = rows
+	e.survey_board_valid = true
+
+## Surveyors can't see true richness: an unsurveyed planet is worth a flat prior, a surveyed one a little
+## less each time (they can't tell how much is left). Each free ship takes the best body its empire isn't already surveying.
 func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
-	var best : ColonyMarket = null
-	var best_v : float = 0.0
+	if not empire.survey_board_valid:
+		_build_survey_board(markets, empire)
 	var busy : Dictionary = {}
 	for k in world.corps:
-		if k.kind == Kind.SURVEYOR:
+		if k.kind == Kind.SURVEYOR and k.empire == empire:
 			for j in k.survey_jobs: busy[j["target"]] = true
-	for c in world.known_frontier() + markets:
-		if busy.has(c):
-			continue
-		var known : float = 0.0
-		for g in c.richness: known += c.richness[g]
-		var ev : float = 1.0 if c.surveys == 0 else 0.4 * known / float(c.surveys)
-		var v : float = ev / (survey_months(c) + _dist(c, world.nearest_settled(c), markets) / SHIP_TIME)
-		if v > best_v:
-			best_v = v; best = c
-	return best
+	for row in empire.survey_board:
+		if not busy.has(row[2]):
+			return row[2]
+	return null
 
 func _complete_survey(t : ColonyMarket) -> void:
-	if t.surveys == 0:
+	var info : Dictionary = t.intel_for(empire)
+	if info["surveys"] == 0:
 		# Paid by the state: an ordered survey at the order price, otherwise the small standing contract fee.
 		var fee : float = SURVEY_CONTRACT
-		if world != null and world.survey_backlog > 0:
-			world.survey_backlog -= 1
+		if empire.survey_backlog > 0:
+			empire.survey_backlog -= 1
 			fee = world.SURVEY_ORDER_PRICE
 		cash += fee
-		if world != null: world.treasury -= fee
+		empire.treasury -= fee
 	t.surveys += 1
+	info["surveys"] += 1
+	empire.survey_board_valid = false
 	surveys_done += 1
 	for g in t.hidden_richness:
 		var r : float = t.hidden_richness[g]
-		var amount : float = r * randf_range(0.4, 1.0) * exp(-SURVEY_DECAY / (r * 5.0) * t.found_frac.get(g, 0.0)) * SURVEY_YIELD
-		var inc : float = t.reveal(g, amount)
+		var amount : float = r * randf_range(0.4, 1.0) * exp(-SURVEY_DECAY / (r * 5.0) * info["found"].get(g, 0.0)) * SURVEY_YIELD
+		var inc : float = t.reveal(empire, g, amount)
 		if inc > 0.0 and t.extraction.get(g, 0.0) <= 0.0:
-			var prev : float = t.claims[g]["value"] if t.claims.has(g) and t.claims[g]["owner"] == self else 0.0
-			t.claims[g] = {"owner": self, "value": prev + inc}
+			var cl : Dictionary = info["claims"]
+			var prev : float = cl[g]["value"] if cl.has(g) and cl[g]["owner"] == self else 0.0
+			cl[g] = {"owner": self, "value": prev + inc}
