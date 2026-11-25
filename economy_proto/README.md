@@ -330,3 +330,21 @@ rebuilding the opportunity board (~2.6 rebuilds a month, each time any facility 
 materials, cost) are now precomputed monthly (`outpost_base()`), and the board sorts natively on [payback, index]; output stays identical.
 1,000 systems x 100 years: 73 s -> 68 s. What's left is volume: ~3,000 outpost options re-scored per rebuild by year 100. Next step if needed: rebuild only
 the good whose capacity changed, or keep a per-good shortlist (may change results slightly).
+
+## Multiple empires (`num_empires`, CSV runner `empires=N`; per-empire `EMP,` rows yearly)
+- `Empire` (empire.gd): capital, treasury and taxes, colonial office, survey orders, sector discoveries, settlements, and its own **known space** and caches.
+- **Capitals**: the first is chosen as before; each further empire takes the good homeworld (>= half the best score, self-sufficient) farthest from existing capitals.
+  Each capital gets its own founding Extractor/Producer/Freight corporations and a state Surveyor.
+- **Knowledge is per empire**: `ColonyMarket.intel[empire id]` holds that empire's known deposits, survey count and surveyors' claims. A settled body's `richness`
+  is its owner's knowledge (same dictionary), so the owner's resurveys feed extraction. Other empires must survey a planet themselves.
+- **Territory**: the first empire to settle any body in a star system owns the whole system (`SystemNode.owner`); others can't survey or settle there.
+- **Corporations are national** (`Corporation.empire`, taxed there) but trade and build in any colony. Founding firms and emergence use the colony's owner.
+- Migration and settlers stay inside an empire; freight and regional demand are galaxy-wide.
+- **Fair turn order**: each month a different empire's corporations act first (they compete for the same lanes, ports and opportunities). Without it,
+  the first empire's freighters always took the best lanes and its treasury reached 37M while the others stayed near zero.
+- With one empire the output is identical to the single-state version (full CSV diff).
+Result: 4 empires, 200 systems, 100 years (`fig20_empires.png`, `scaling/empires4_200.out`): Empires 1/3/4 reach 122-126 colonies in 27-42 systems, pop 6,750-7,400;
+Empire 2, hemmed in by its neighbours, holds 20 systems, 95 colonies and stalls near 4,200 people from year ~75. Treasuries 2-22M (Empire 1 still richest).
+Cost: 390 s (vs ~70 s for one empire on the same map): extractors 234 s, mostly re-scoring each empire's thousands of outpost options whenever any facility registers.
+Tried splitting the board into a shared market part and per-empire outposts: no speed-up (the outposts are the volume) and slightly different results
+(the market options were evaluated at a different moment in the month), so it was reverted.
