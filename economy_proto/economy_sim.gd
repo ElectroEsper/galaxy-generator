@@ -103,245 +103,290 @@ func _setup_corps() -> void:
 		Corporation.new(Corporation.Kind.FREIGHT, 300.0),
 	]
 
+## Several empires can share the galaxy (`num_empires`); with one, behaviour matches the single-state version.
+@export var num_empires : int = 1
+var empires : Array = []
+const EMPIRE_COLORS : Array = [Color(0.95, 0.8, 0.35), Color(0.4, 0.75, 1.0), Color(0.95, 0.45, 0.45), Color(0.6, 0.9, 0.5), Color(0.8, 0.6, 1.0), Color(1.0, 0.65, 0.3), Color(0.5, 0.95, 0.9), Color(0.95, 0.6, 0.85)]
+
 func _setup_colonization() -> void:
 	Corporation.world = self
 	ColonyMarket.external_migration = true
-	# Best planet that can feed and equip itself: a homeworld without Ore can't run its own industry.
-	var best : ColonyMarket = markets[0]
+	# Capitals: the best planet that can feed and equip itself (a homeworld without Ore can't run its own industry);
+	# further empires take the good homeworld farthest from the existing capitals.
+	var value : Dictionary = {}
 	var best_v : float = -1.0
 	for c in markets:
 		var self_sufficient : bool = c.richness.has(Goods.ORE) and (c.richness.has(Goods.FOOD) or c.richness.has(Goods.WATER))
-		var v : float = c.site_score * (1.0 if self_sufficient else 0.25)
-		if v > best_v:
-			best_v = v; best = c
-	capital = best
-	var home_star : String = capital.name.get_slice(".", 0)
-	capital.name = "Capital"
-	capital.max_pop = CAPITAL_CEILING
-	capital.pop = CAPITAL_POP
+		value[c] = c.site_score * (1.0 if self_sufficient else 0.25)
+		best_v = maxf(best_v, value[c])
+	var capitals : Array = []
+	for i in num_empires:
+		var pick : ColonyMarket = null
+		var pv : float = -1.0
+		for c in markets:
+			if capitals.has(c) or (c.system != null and capitals.any(func(x): return x.system == c.system)):
+				continue
+			var v : float = value[c]
+			if i > 0:
+				if v < best_v * 0.5:
+					continue
+				var dmin : float = INF
+				for x in capitals: dmin = minf(dmin, x.position.distance_to(c.position))
+				v = dmin + v * 0.001         # spread out first, quality breaks ties
+			if v > pv:
+				pv = v; pick = c
+		capitals.append(pick)
+	var home_stars : Array = []
+	for i in num_empires:
+		var e := Empire.new(i, "Empire %d" % (i + 1), EMPIRE_COLORS[i % EMPIRE_COLORS.size()])
+		e.capital = capitals[i]
+		home_stars.append(capitals[i].name.get_slice(".", 0))
+		capitals[i].name = "Capital" if num_empires == 1 else "Capital %d" % (i + 1)
+		capitals[i].max_pop = CAPITAL_CEILING
+		capitals[i].pop = CAPITAL_POP
+		empires.append(e)
+	capital = capitals[0]
 	for c in markets:
-		if c != capital:
+		if not capitals.has(c):
 			c.make_frontier()
 			frontier.append(c)
-	# Home deposits are fully known; distant ones need surveyors.
-	for g in capital.richness:
-		capital.hidden_richness[g] = capital.richness[g]; capital.found_frac[g] = 1.0
-	capital.surveys = 1
-	# The home system is charted from the start (no claims: it's public knowledge).
-	for c in frontier:
-		if c.name.get_slice(".", 0) == home_star:
-			c.surveys = 1
-			for g in c.hidden_richness:
-				c.reveal(g, c.hidden_richness[g])
-	markets = [capital]
+	for i in num_empires:
+		var e : Empire = empires[i]
+		var cap : ColonyMarket = e.capital
+		# Home deposits are fully known; distant ones need surveyors.
+		for g in cap.richness:
+			cap.hidden_richness[g] = cap.richness[g]; cap.found_frac[g] = 1.0
+		var info : Dictionary = cap.intel_for(e)
+		for g in cap.richness:
+			info["rich"][g] = cap.richness[g]; info["found"][g] = 1.0
+		info["surveys"] = 1
+		cap.surveys = 1
+		cap.owner = e
+		cap.richness = info["rich"]
+		if cap.system != null: cap.system.owner = e
+		# The home system is charted from the start (no claims: it's public knowledge at home).
+		for c in frontier:
+			if c.name.get_slice(".", 0) == home_stars[i]:
+				c.surveys = 1
+				c.intel_for(e)["surveys"] = 1
+				for g in c.hidden_richness:
+					c.reveal(e, g, c.hidden_richness[g])
+	markets = []
+	for e in empires: markets.append(e.capital)
 	for sys in GalaxyColonies.systems:
 		sys.known = false
-	_reveal_around(capital.position, HOME_HORIZON)
-	_seed_capital()
-	corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # state-chartered survey service
+	for e in empires:
+		_reveal_around(e, e.capital.position, HOME_HORIZON)
+	for i in num_empires:
+		var e : Empire = empires[i]
+		var ex : Corporation; var pr : Corporation
+		if i == 0:
+			ex = corps[0]; pr = corps[1]
+			for k in corps: k.empire = e
+		else:
+			ex = Corporation.new(Corporation.Kind.EXTRACTOR, 300.0, e)
+			pr = Corporation.new(Corporation.Kind.PRODUCER, 300.0, e)
+			corps.append(ex); corps.append(pr); corps.append(Corporation.new(Corporation.Kind.FREIGHT, 300.0, e))
+		_seed_capital(e.capital, ex, pr)
+	for e in empires:
+		corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0, e))   # state-chartered survey service
 
 ## The homeworld starts with an established economy sized to its population (no capex; it predates the game).
-func _seed_capital() -> void:
-	var ex : Corporation = corps[0]
-	var pr : Corporation = corps[1]
-	var p : float = capital.pop
+func _seed_capital(cap : ColonyMarket, ex : Corporation, pr : Corporation) -> void:
+	var p : float = cap.pop
 	# A few passes, because the industry itself needs upkeep (Parts per facility) and inputs (Water for hydroponics).
 	for pass_i in 4:
 		var hydro : float = 0.0
 		for f in pr.facilities:
 			if f.good == Goods.FOOD: hydro += f.throughput()
-		var parts_need : float = (p * 0.012 + capital.facility_count * ColonyMarket.MAINT_PARTS_PER_FACILITY * (1.0 - ColonyMarket.SALVAGE_RATE) + hydro * 0.1) * 1.3
+		var parts_need : float = (p * 0.012 + cap.facility_count * ColonyMarket.MAINT_PARTS_PER_FACILITY * (1.0 - ColonyMarket.SALVAGE_RATE) + hydro * 0.1) * 1.3
 		var needs : Dictionary = {Goods.FOOD: p * 0.05 * 1.2, Goods.WATER: (p * 0.02 + hydro * 2.0) * 1.3, Goods.PARTS: parts_need,
 			Goods.METAL: (p * ColonyMarket.MAINT_METAL_PER_POP + parts_need * 2.0) * 1.1}
 		needs[Goods.ORE] = needs[Goods.METAL] * 2.0 * 1.1
 		for g in [Goods.WATER, Goods.FOOD, Goods.ORE, Goods.METAL, Goods.PARTS]:
 			var guard : int = 0
-			while capital.capacity[g] < needs[g] and capital.facility_slots_free() > 0 and guard < 200:
+			while cap.capacity[g] < needs[g] and cap.facility_slots_free() > 0 and guard < 200:
 				guard += 1
-				var q : float = capital.richness.get(g, 0.0)
-				if q > 0.0 and ex._site_room(capital, g, false) >= q:
-					ex.seed_facility(capital, g)
+				var q : float = cap.richness.get(g, 0.0)
+				if q > 0.0 and ex._site_room(cap, g, false) >= q:
+					ex.seed_facility(cap, g)
 				elif Goods.RECIPES.has(g):
-					pr.seed_facility(capital, g, true)
+					pr.seed_facility(cap, g, true)
 				else:
 					break
 		if pass_i == 3:
 			# Shelves at normal cover (prices start near base), and the founding firms are established businesses.
 			for g in needs:
-				capital.stock[g] = needs[g] * ColonyMarket.COVER_TICKS
+				cap.stock[g] = needs[g] * ColonyMarket.COVER_TICKS
 			ex.cash = 40.0 * ex.facilities.size() + 300.0
 			pr.cash = 40.0 * pr.facilities.size() + 300.0
 
-var _near_cache : Dictionary = {}
-var _cand_cache : Array = []
-var _cand_valid : bool = false
+func _empire_colonies(e : Empire) -> Array:
+	return markets.filter(func(m): return m.owner == e)
 
-var _ob_cache : Array = []
-var _ob_valid : bool = false
+func _clear_empire_caches() -> void:
+	for e in empires: e.clear_caches()
+	Corporation.reg_cache.clear()
 
-## Outpost options' fixed parts for this month: [body, good, richness, net unit margin at the nearest colony after shipping,
-## cost without the claim fee]. Rebuilt with the candidate list (each month, or when a colony is founded).
-func outpost_base() -> Array:
-	if not _ob_valid:
-		_ob_valid = true
-		var cands : Array = frontier_candidates()
-		_ob_cache = []
-		for c in cands:
-			if c.settled or not can_send_settlers(c):
+## Outpost options' fixed parts for this month, for empire e: [body, good, richness, net unit margin at e's nearest colony
+## after shipping, cost without the claim fee]. Rebuilt with the candidate list (each month, or when a colony is founded).
+func outpost_base(e : Empire) -> Array:
+	if not e.ob_valid:
+		e.ob_valid = true
+		e.ob_cache = []
+		for c in frontier_candidates(e):
+			if c.settled or not can_send_settlers(c, e):
 				continue
-			var near : ColonyMarket = nearest_settled(c)
+			var near : ColonyMarket = nearest_settled(c, e)
 			var mats : float = Corporation._materials_cost(near, 1.0, true)
-			for g in c.richness:
+			var rich : Dictionary = c.known_rich(e)
+			for g in rich:
 				var unit : float = near.price[g] - Goods.RAW_COST[g] - Corporation.SHIP_COST * Corporation._dist(c, near, [])
-				_ob_cache.append([c, g, c.richness[g], unit, Corporation.CAPEX + Corporation.OUTPOST_COST + mats])
-	return _ob_cache
+				e.ob_cache.append([c, g, rich[g], unit, Corporation.CAPEX + Corporation.OUTPOST_COST + mats])
+	return e.ob_cache
 
-## Unsettled bodies with known deposits (outpost candidates), computed once per tick.
-func frontier_candidates() -> Array:
-	if not _cand_valid:
-		_cand_cache = frontier.filter(func(c): return not c.settled and not c.richness.is_empty())
-		_cand_valid = true
-	return _cand_cache
-var _donor_cache : Dictionary = {}
+## Unsettled bodies with deposits known to e, outside other empires' territory (outpost candidates), computed once per tick.
+func frontier_candidates(e : Empire) -> Array:
+	if not e.cand_valid:
+		e.cand_cache = frontier.filter(func(c): return not c.settled and not c.known_rich(e).is_empty() and e.may_enter(c))
+		e.cand_valid = true
+	return e.cand_cache
 
-## Closest settled colony (where supplies, settlers and survey ships come from). Cached per tick.
-func nearest_settled(c : ColonyMarket) -> ColonyMarket:
-	if _near_cache.has(c):
-		return _near_cache[c]
-	var r : ColonyMarket = _nearest_settled_uncached(c)
-	_near_cache[c] = r
-	return r
-
-func _nearest_settled_uncached(c : ColonyMarket) -> ColonyMarket:
-	var best : ColonyMarket = capital
+## Closest colony of empire e (where its supplies, settlers and survey ships come from). Cached per tick.
+func nearest_settled(c : ColonyMarket, e : Empire = null) -> ColonyMarket:
+	if e == null: e = empires[0]
+	if e.near_cache.has(c):
+		return e.near_cache[c]
+	var best : ColonyMarket = e.capital
 	var bd : float = INF
 	for m in markets:
+		if m.owner != e:
+			continue
 		var d : float = m.position.distance_to(c.position)
 		if d < bd:
 			bd = d; best = m
+	e.near_cache[c] = best
 	return best
 
-func _settler_donor(c : ColonyMarket) -> ColonyMarket:
-	if _donor_cache.has(c):
-		return _donor_cache[c]
-	var r : ColonyMarket = _settler_donor_uncached(c)
-	_donor_cache[c] = r
-	return r
-
-func _settler_donor_uncached(c : ColonyMarket) -> ColonyMarket:
-	# Colonization companies recruit volunteers from any colony big enough to spare them (the home colony's
-	# own labour gap grows a little), preferring well-staffed colonies close to the target.
+func _settler_donor(c : ColonyMarket, e : Empire) -> ColonyMarket:
+	if e.donor_cache.has(c):
+		return e.donor_cache[c]
+	# Colonization companies recruit volunteers from any of the empire's colonies big enough to spare them
+	# (the home colony's own labour gap grows a little), preferring well-staffed colonies close to the target.
 	var best : ColonyMarket = null
 	var bv : float = 0.0
 	for m in markets:
-		if m.pop < SETTLER_MIN_POP:
+		if m.owner != e or m.pop < SETTLER_MIN_POP:
 			continue
 		var v : float = (m.pop / maxf(m.target_pop(), 1.0)) * m.pop / (1.0 + m.position.distance_to(c.position) / 200.0)
 		if v > bv:
 			bv = v; best = m
+	e.donor_cache[c] = best
 	return best
 
-func can_send_settlers(c : ColonyMarket) -> bool:
-	return _settler_donor(c) != null
+func can_send_settlers(c : ColonyMarket, e : Empire) -> bool:
+	return _settler_donor(c, e) != null
 
-## A corporation founds an outpost: settlers move from the colony with the most idle people (nearest first).
-func found_outpost(c : ColonyMarket) -> bool:
-	var donor : ColonyMarket = _settler_donor(c)
-	if donor == null or c.settled:
-		return false
-	donor.pop -= Corporation.OUTPOST_SETTLERS
-	c.settle(Corporation.OUTPOST_SETTLERS)
-	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false; _ob_valid = false
-	Corporation.survey_board_valid = false
-	_reveal_around(c.position, COLONY_HORIZON)
+func _on_settled(c : ColonyMarket, e : Empire) -> void:
+	_clear_empire_caches()
+	_reveal_around(e, c.position, COLONY_HORIZON)
 	c.growth_enabled = growth_enabled
 	markets.append(c)
 	settlements += 1
+	e.settlements += 1
+
+## A corporation founds an outpost for its empire: settlers move from that empire's colony with the most idle people.
+func found_outpost(c : ColonyMarket, e : Empire) -> bool:
+	var donor : ColonyMarket = _settler_donor(c, e)
+	if donor == null or c.settled or not e.may_enter(c):
+		return false
+	donor.pop -= Corporation.OUTPOST_SETTLERS
+	c.settle(Corporation.OUTPOST_SETTLERS, e)
+	_on_settled(c, e)
 	shipment_made.emit(donor, c, Goods.FOOD, Corporation.OUTPOST_SETTLERS)
 	return true
 
-## The colonial office picks the surveyed, unsettled planet that best fills the economy's gaps
+## The colonial office picks the surveyed, unsettled planet that best fills its empire's gaps
 ## (known deposits weighted by how scarce that good is, plus room to grow), closest first, and pays for it all:
 ## settlers' passage, habitat materials (taken from the nearest colony's shelf at its prices) and a grant for the local business.
-func _state_colonize() -> void:
+func _state_colonize(e : Empire) -> void:
+	var own : Array = _empire_colonies(e)
 	var scarcity : Dictionary = {}
 	for g in Goods.ALL:
 		var p : float = 0.0
-		for m in markets: p += m.price[g]
-		scarcity[g] = p / markets.size() / ColonyMarket.BASE_PRICE
+		for m in own: p += m.price[g]
+		scarcity[g] = p / own.size() / ColonyMarket.BASE_PRICE
 	var best : ColonyMarket = null
 	var bv : float = 0.0
 	for c in frontier:
-		if c.settled or c.surveys == 0 or c.richness.is_empty():
+		if c.settled or c.surveys_by(e) == 0 or not e.may_enter(c):
+			continue
+		var rich : Dictionary = c.known_rich(e)
+		if rich.is_empty():
 			continue
 		var v : float = c.max_pop / 400.0
-		for g in c.richness: v += c.richness[g] * scarcity[g]
-		v /= 1.0 + c.position.distance_to(nearest_settled(c).position) / 200.0
+		for g in rich: v += rich[g] * scarcity[g]
+		v /= 1.0 + c.position.distance_to(nearest_settled(c, e).position) / 200.0
 		if v > bv:
 			bv = v; best = c
 	if best == null:
 		return
-	var near : ColonyMarket = nearest_settled(best)
+	var near : ColonyMarket = nearest_settled(best, e)
 	var cost : float = Corporation.OUTPOST_COST + STATE_GRANT + STATE_HABITAT_METAL * near.price[Goods.METAL] + STATE_HABITAT_PARTS * near.price[Goods.PARTS]
-	if treasury < cost * STATE_RESERVE or _settler_donor(best) == null:
+	if e.treasury < cost * STATE_RESERVE or _settler_donor(best, e) == null:
 		return
-	var donor : ColonyMarket = _settler_donor(best)
+	var donor : ColonyMarket = _settler_donor(best, e)
 	if donor.pop < STATE_SETTLERS * 2.5:
 		return
 	near.stock[Goods.METAL] = maxf(0.0, near.stock[Goods.METAL] - STATE_HABITAT_METAL)
 	near.stock[Goods.PARTS] = maxf(0.0, near.stock[Goods.PARTS] - STATE_HABITAT_PARTS)
 	donor.pop -= STATE_SETTLERS
-	best.settle(STATE_SETTLERS)
-	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false; _ob_valid = false
-	Corporation.survey_board_valid = false
-	_reveal_around(best.position, COLONY_HORIZON)
+	best.settle(STATE_SETTLERS, e)
+	_clear_empire_caches()
+	_reveal_around(e, best.position, COLONY_HORIZON)
 	best.growth_enabled = growth_enabled
 	best.local_cash = STATE_GRANT
-	for g in best.claims:                # the state buys out the surveyors' claims at the going price
-		var cl : Dictionary = best.claims[g]
+	var claims : Dictionary = best.intel_for(e)["claims"]
+	for g in claims:                     # the state buys out its surveyors' claims at the going price
+		var cl : Dictionary = claims[g]
 		var fee : float = Corporation.CLAIM_PRICE * cl["value"]
 		cl["owner"].cash += fee; cl["owner"].claims_sold += 1
-		treasury -= fee; state_spent += fee
-	best.claims.clear()
+		e.treasury -= fee; e.state_spent += fee
+	claims.clear()
 	markets.append(best)
 	settlements += 1
-	state_colonies += 1
-	treasury -= cost
-	state_spent += cost
+	e.settlements += 1
+	e.state_colonies += 1
+	e.treasury -= cost
+	e.state_spent += cost
 	shipment_made.emit(donor, best, Goods.FOOD, STATE_SETTLERS)
 
-var _known_frontier : Array = []
-var _known_valid : bool = false
+## Frontier bodies e may survey (charted by e, not another empire's territory), in frontier order; rebuilt when e charts space.
+func known_frontier(e : Empire) -> Array:
+	if not e.known_valid:
+		e.known_frontier_cache = frontier.filter(func(c): return e.may_enter(c))
+		e.known_valid = true
+	return e.known_frontier_cache
 
-## Frontier bodies in charted systems (what surveyors may target), in frontier order; rebuilt when space is charted.
-func known_frontier() -> Array:
-	if not _known_valid:
-		_known_frontier = frontier.filter(func(c): return is_known(c))
-		_known_valid = true
-	return _known_frontier
-
-func _reveal_around(pos : Vector2, radius : float) -> int:
-	_known_valid = false
-	Corporation.survey_board_valid = false
+func _reveal_around(e : Empire, pos : Vector2, radius : float) -> int:
+	e.known_valid = false
+	e.survey_board_valid = false
 	var n : int = 0
 	for sys in GalaxyColonies.systems:
-		if not sys.known and sys.position.distance_to(pos) <= radius:
-			sys.known = true; n += 1
+		if not e.known.has(sys) and sys.position.distance_to(pos) <= radius:
+			e.known[sys] = true; sys.known = true; n += 1
 	return n
 
-static func is_known(c : ColonyMarket) -> bool:
-	return c.system == null or c.system.known
-
-## A random event (probe report, navigation breakthrough, strange signal...) charts a whole dark sector.
-## More likely as known space runs out of unsurveyed bodies, so booms tend to arrive when surveyors go idle.
-func _maybe_discover_sector() -> void:
+## A random event (probe report, navigation breakthrough, strange signal...) charts a whole dark sector for one empire.
+## More likely as e's known space runs out of unsurveyed bodies, so booms tend to arrive when its surveyors go idle.
+func _maybe_discover_sector(e : Empire) -> void:
 	var known_n : int = 0; var surveyed_n : int = 0
 	var dark : Array = []
 	for sys in GalaxyColonies.systems:
-		if sys.known:
+		if e.known.has(sys):
 			for c in sys.bodies:
 				known_n += 1
-				if c.surveys > 0: surveyed_n += 1
+				if c.surveys_by(e) > 0: surveyed_n += 1
 		else:
 			dark.append(sys)
 	if dark.is_empty():
@@ -350,31 +395,33 @@ func _maybe_discover_sector() -> void:
 	if randf() >= SECTOR_BASE_CHANCE + SECTOR_EXHAUSTED_CHANCE * pow(exhaustion, 3.0):
 		return
 	var centre : SystemNode = dark[randi() % dark.size()]
-	_reveal_around(centre.position, SECTOR_RADIUS)
+	_reveal_around(e, centre.position, SECTOR_RADIUS)
+	e.sector_events += 1
 	sector_events += 1
 
-## Order first surveys of unexplored planets, up to the yearly budget.
-func _order_surveys() -> void:
+## Order first surveys of unexplored planets in e's known space, up to the yearly budget.
+func _order_surveys(e : Empire) -> void:
 	var unexplored : int = 0
 	for c in frontier:
-		if c.surveys == 0 and is_known(c): unexplored += 1
-	var n : int = mini(unexplored - survey_backlog, int(treasury * SURVEY_BUDGET_SHARE / SURVEY_ORDER_PRICE))
+		if c.surveys_by(e) == 0 and e.may_enter(c): unexplored += 1
+	var n : int = mini(unexplored - e.survey_backlog, int(e.treasury * SURVEY_BUDGET_SHARE / SURVEY_ORDER_PRICE))
 	if n > 0:
-		survey_backlog += n
-		surveys_ordered += n
+		e.survey_backlog += n
+		e.surveys_ordered += n
 
-## Zero-sum migration: people move from better-staffed colonies (pop / jobs-target above average)
+## Zero-sum migration inside one empire: people move from better-staffed colonies (pop / jobs-target above average)
 ## toward worse-staffed ones, so new outposts fill up from the core even when everyone is short of workers.
-func _migrate() -> void:
-	if markets.size() < 2:
+func _migrate(e : Empire) -> void:
+	var own : Array = _empire_colonies(e)
+	if own.size() < 2:
 		return
 	var tp : float = 0.0; var tt : float = 0.0
-	for c in markets:
+	for c in own:
 		tp += c.pop; tt += c.target_pop()
 	var avg : float = tp / maxf(tt, 1.0)
 	var pull : Dictionary = {}; var push : Dictionary = {}
 	var sp : float = 0.0; var ss : float = 0.0
-	for c in markets:
+	for c in own:
 		var t : float = c.target_pop()
 		var dev : float = c.pop - avg * t      # people above (+) or below (-) the average staffing level
 		if dev < 0.0 and c.pop < c.max_pop:
@@ -412,9 +459,7 @@ func _p(phase : String, t0 : int) -> int:
 
 func _tick(t : int) -> void:
 	var t0 : int = Time.get_ticks_usec()
-	Corporation.reg_cache.clear()
-	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false; _ob_valid = false
-	Corporation.survey_board_valid = false
+	_clear_empire_caches()
 	for c in markets:
 		c.jobs = 0.0
 		c.port_used = 0
@@ -422,29 +467,36 @@ func _tick(t : int) -> void:
 		for f in k.facilities:
 			f.colony.jobs += 1.0
 	t0 = _p("jobs_reset", t0)
-	for k in corps:
+	for k in _turn_order(t):
 		var before : float = k.cash
 		var tk : int = Time.get_ticks_usec()
 		k.run(markets)
 		_p("corp_" + Corporation.Kind.find_key(k.kind).to_lower(), tk)
 		if taxes:
 			var tax : float = maxf(0.0, k.cash - before) * PROFIT_TAX + maxf(0.0, k.cash - WEALTH_FREE) * WEALTH_TAX
-			k.cash -= tax; treasury += tax; tax_collected += tax
+			k.cash -= tax; tax_collected += tax
+			if k.empire != null:
+				k.empire.treasury += tax; k.empire.tax_collected += tax
+			else:
+				treasury += tax
 		for m in k.last_moves:
 			shipment_made.emit(m["from"], m["to"], m["good"], m["qty"])
 	t0 = Time.get_ticks_usec()
 	if colonize:
-		_migrate()
+		for e in empires: _migrate(e)
 		t0 = _p("migration", t0)
-		_maybe_discover_sector()
+		for e in empires: _maybe_discover_sector(e)
 		t0 = _p("sector_events", t0)
 		if state_colonization and t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1:
-			_state_colonize()
-			_order_surveys()
+			for e in empires:
+				_state_colonize(e)
+				_order_surveys(e)
 		t0 = _p("state", t0)
-		if t % 120 == 119 and not corps.any(func(k): return k.kind == Corporation.Kind.SURVEYOR):
-			corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # the state re-charters a survey service
-			treasury -= 600.0
+		if t % 120 == 119:
+			for e in empires:
+				if not corps.any(func(k): return k.kind == Corporation.Kind.SURVEYOR and k.empire == e):
+					corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0, e))   # the state re-charters a survey service
+					e.treasury -= 600.0
 	t0 = Time.get_ticks_usec()
 	Corporation.reg_cache.clear()
 	for c in markets.duplicate():
@@ -458,13 +510,28 @@ func _tick(t : int) -> void:
 	corps = corps.filter(func(k): return not k.is_dead())
 	_p("dissolution", t0)
 
+## Fair turn order between empires: each month a different empire's corporations act first (they compete for the same
+## lanes, ports and opportunities). Within an empire, corporations keep their order; with one empire nothing changes.
+func _turn_order(t : int) -> Array:
+	if empires.size() <= 1:
+		return corps
+	var out : Array = []
+	var n : int = empires.size()
+	for i in n:
+		var e : Empire = empires[(t + i) % n]
+		for k in corps:
+			if k.empire == e: out.append(k)
+	for k in corps:
+		if k.empire == null: out.append(k)
+	return out
+
 ## Two emergence paths, both local to a colony:
 ##  1. Promotion: the informal local business has banked enough profit to incorporate.
 ##  2. Attraction: workforce demand outpaces population (jobs but not enough people) -> outside founder.
 func _try_emergence(c : ColonyMarket) -> void:
 	if c.local_cash > PROMOTE_CASH and not c.richness.is_empty():
 		var g : int = c.richness.keys()[0]
-		var k := Corporation.new(Corporation.Kind.EXTRACTOR, c.local_cash * 0.5)
+		var k := Corporation.new(Corporation.Kind.EXTRACTOR, c.local_cash * 0.5, c.owner)
 		c.local_cash = 0.0
 		k.seed_facility(c, g)
 		corps.append(k)
@@ -475,7 +542,7 @@ func _try_emergence(c : ColonyMarket) -> void:
 		for k in corps:                     # an idle funded corporation of this kind will take the opening itself
 			if k.kind == kind and k.is_idle_funded():
 				return
-		corps.append(Corporation.new(kind, 200.0))
+		corps.append(Corporation.new(kind, 200.0, c.owner))
 		attractions += 1
 
 func _print_snapshot(t : int) -> void:
@@ -546,10 +613,41 @@ func _has_extraction_site(g : int) -> bool:
 	for c in markets:
 		if c.richness.get(g, 0.0) > 0.0 and c.facility_slots_free() > 0:
 			return true
-	for c in frontier:
-		if not c.settled and c.richness.get(g, 0.0) > 0.0:
-			return true
+	for e in empires:
+		for c in frontier_candidates(e):
+			if c.known_rich(e).get(g, 0.0) > 0.0:
+				return true
 	return false
+
+## Sum of an Empire field across empires (or the fallback when there are none).
+func _esum(field : String, fallback):
+	if empires.is_empty():
+		return fallback
+	var t = 0
+	for e in empires: t += e.get(field)
+	return t
+
+## Per-empire metrics, one row per empire (see EMPIRE_HEADER).
+const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps"
+func empire_rows() -> Array:
+	var rows : Array = []
+	for e in empires:
+		var own : Array = _empire_colonies(e)
+		var pop : float = 0.0; var fac : int = 0
+		var sys : Dictionary = {}
+		for c in own:
+			pop += c.pop; fac += c.facility_count
+			if c.system != null: sys[c.system] = true
+		var surveyed : int = 0
+		for c in frontier:
+			if c.surveys_by(e) > 0: surveyed += 1
+		var sships : int = 0; var nc : int = 0
+		for k in corps:
+			if k.empire == e:
+				nc += 1
+				if k.kind == Corporation.Kind.SURVEYOR: sships += 1 + k.ships
+		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc])
+	return rows
 
 ## One row of time-series metrics (see METRIC_HEADER).
 const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent,surveys_ordered,survey_backlog,survey_losses,systems_settled,known_systems,sector_events"
@@ -607,4 +705,4 @@ func metrics_row() -> String:
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f,%d,%d,%d,%d,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent, surveys_ordered, survey_backlog, slost, sys_settled, GalaxyColonies.systems.filter(func(x): return x.known).size(), sector_events]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f,%d,%d,%d,%d,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, _esum("treasury", treasury), ccash, tax_collected, nbuild, _esum("state_colonies", 0), _esum("state_spent", 0), _esum("surveys_ordered", 0), _esum("survey_backlog", 0), slost, sys_settled, GalaxyColonies.systems.filter(func(x): return x.known).size(), sector_events]

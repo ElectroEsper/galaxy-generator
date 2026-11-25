@@ -36,7 +36,12 @@ var site_score : float = 0.0          # how attractive the planet looks as a hom
 var hidden_richness : Dictionary = {} # true richness; `richness` holds only what surveys have revealed
 var found_frac : Dictionary = {}      # revealed share of each good's true richness
 var surveys : int = 0
-var claims : Dictionary = {}          # good -> {"owner": Corporation, "value": richness revealed}; sold to the first extractor
+var claims : Dictionary = {}          # (legacy, unused with empires) see intel
+var owner = null                       # Empire that settled this body
+## Per-empire knowledge: empire id -> {"rich": {good: known richness}, "found": {good: share of true richness found},
+## "surveys": int, "claims": {good: {"owner": Corporation, "value": float}}}. For a settled body, `richness` IS the owner's
+## "rich" dictionary (same object), so the owner's surveys feed its extraction directly.
+var intel : Dictionary = {}
 
 func _init(n : String, p : float, rich : Dictionary, ceiling : float = 400.0) -> void:
 	name = n; pop = p; richness = rich; max_pop = ceiling
@@ -158,24 +163,42 @@ func make_frontier() -> void:
 	settled = false
 	pop = 0.0
 
-## A survey revealed `amount` more of good g (capped by the true richness). Returns how much was new.
-func reveal(g : int, amount : float) -> float:
+func intel_for(e) -> Dictionary:
+	if not intel.has(e.id):
+		intel[e.id] = {"rich": {}, "found": {}, "surveys": 0, "claims": {}}
+	return intel[e.id]
+
+## What empire e knows of this body's deposits (empty if it never surveyed it).
+func known_rich(e) -> Dictionary:
+	return intel[e.id]["rich"] if intel.has(e.id) else {}
+
+func surveys_by(e) -> int:
+	return intel[e.id]["surveys"] if intel.has(e.id) else 0
+
+## A survey by empire e revealed `amount` more of good g (capped by the true richness). Returns how much was new.
+func reveal(e, g : int, amount : float) -> float:
+	var info : Dictionary = intel_for(e)
 	var r : float = hidden_richness.get(g, 0.0)
-	var old : float = richness.get(g, 0.0)
+	var old : float = info["rich"].get(g, 0.0)
 	var nv : float = minf(r, old + amount)
 	if nv <= old + 0.001:
 		return 0.0
-	richness[g] = nv
-	found_frac[g] = nv / maxf(r, 0.001)
-	if settled:
+	info["rich"][g] = nv
+	info["found"][g] = nv / maxf(r, 0.001)
+	if settled and owner == e:
 		Corporation.reg_cache.clear()
 		capacity[g] += (nv - old) * 0.25      # the local business starts working the new find
 	return nv - old
 
-## First settlers arrive.
-func settle(settlers : float) -> void:
+## First settlers arrive, sent by empire e: the body (and its whole system) becomes e's, and e's knowledge drives its economy.
+func settle(settlers : float, e = null) -> void:
 	settled = true
 	pop = settlers
+	if e != null:
+		owner = e
+		richness = intel_for(e)["rich"]
+		if system != null and system.owner == null:
+			system.owner = e
 	Corporation.reg_cache.clear()
 	for g in richness:
 		capacity[g] += local_output(g)

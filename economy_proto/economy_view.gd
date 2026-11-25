@@ -91,7 +91,7 @@ func _draw() -> void:
 		var settled : Array = sys.settled_bodies()
 		var surveyed : int = sys.surveyed_count()
 		if settled.is_empty():
-			var known : bool = sys.bodies.any(func(c): return not c.richness.is_empty())
+			var known : bool = sys.bodies.any(func(c): return c.intel.values().any(func(i): return not i["rich"].is_empty()))
 			var sc : Color = Color(0.55, 0.55, 0.62, 0.6) if surveyed == 0 else Color(0.75, 0.78, 0.85, 0.85)
 			draw_circle(sys.position, 2.5, sc)
 			if known:
@@ -102,9 +102,11 @@ func _draw() -> void:
 		for c in settled: short += _shortage(c) / settled.size()
 		var r : float = 7.0 + sqrt(pop) * 0.6
 		var col : Color = Color(0.3, 0.8, 0.4).lerp(Color(0.95, 0.3, 0.25), short)
+		if sim.empires.size() > 1 and sys.owner != null:
+			col = sys.owner.color.lerp(Color(0.95, 0.3, 0.25), short * 0.5)     # empire colour, reddened by shortage
 		draw_circle(sys.position, r + 3.0, Color(col, 0.18))
 		draw_circle(sys.position, r, col)
-		var is_cap : bool = settled.has(sim.capital)
+		var is_cap : bool = sim.empires.any(func(e): return settled.has(e.capital))
 		draw_arc(sys.position, r, 0.0, TAU, 32, Color(1, 0.9, 0.5, 0.9) if is_cap else Color(1, 1, 1, 0.5), 2.0 if is_cap else 1.2)
 		var label : String = "%s%s  %d/%d  pop %d" % ["Capital system " if is_cap else "", sys.name, settled.size(), sys.bodies.size(), pop]
 		draw_string(font, sys.position + Vector2(-r, -r - 6.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
