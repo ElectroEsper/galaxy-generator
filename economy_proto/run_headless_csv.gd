@@ -11,6 +11,7 @@ func _initialize() -> void:
 	var colonize : bool = false
 	var sim_taxes : bool = true
 	var sim_state : bool = true
+	var planets : int = 100
 	var sim_seed : int = 7
 	for a in OS.get_cmdline_user_args():
 		if a == "growth=0":
@@ -19,6 +20,8 @@ func _initialize() -> void:
 			gc.food_mult = float(a.get_slice("=", 1))
 		elif a.begins_with("seed="):
 			sim_seed = int(a.get_slice("=", 1))
+		elif a.begins_with("planets="):
+			planets = int(a.get_slice("=", 1))
 		elif a == "state=0":
 			sim_state = false
 		elif a == "taxes=0":
@@ -30,7 +33,7 @@ func _initialize() -> void:
 	var sim = load("res://economy_proto/economy_sim.gd").new()
 	sim.use_galaxy = true
 	sim.all_planets = true
-	sim.galaxy_colonies = 100
+	sim.galaxy_colonies = planets
 	sim.max_corps = 60
 	sim.growth_enabled = growth
 	sim.auto_run = false
