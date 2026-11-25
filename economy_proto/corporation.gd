@@ -17,9 +17,10 @@ const SHIP_TIME := 4.0      # distance units a ship can sail per tick (a deliver
 const LOAD_TIME := 0.5
 const GROW_FILL := 0.15    # add capacity only while holds are at least this full on average
 const SHIP_COST := 0.4        # per unit per distance step
+const EXPORT_SHARE := 1.0    # share of the regional deficit a site can count on exporting to (Freight carries it)
 const PAYBACK_HORIZON := 25.0 # ticks; expand only if CAPEX / margin < this
 const REQUEST_COVER := 4.0     # producers ask Freight to keep this many ticks of inputs on the shelf
-const MAX_LEVEL := 4
+const MAX_LEVEL := 8
 const LEVEL_BONUS := 0.6        # each level adds this fraction of base output
 const UPKEEP_GROWTH := 0.25     # each level adds this fraction of base upkeep (jobs/slots stay the same)
 const EXTRACT_CAP_MULT := 40.0  # a site can't be extracted beyond richness x this per good, however upgraded
@@ -58,6 +59,7 @@ var broke_ticks : int = 0
 var idle_ticks : int = 0
 var upgrades : int = 0
 var utilisation : float = 0.0   # share of voyages that found a profitable lane
+var rr : int = 0
 var marg_rate : float = 0.0    # EMA profit per unit of sailing time on the last (marginal) delivery each tick
 var fill : float = 0.0          # average hold fill on those voyages
 var moved : float = 0.0
@@ -72,6 +74,7 @@ func seed_facility(c : ColonyMarket, g : int) -> void:
 	facilities.append(f)
 	_register(f, 1.0)
 	c.facility_count += 1
+	if f.extracts(): c.extractor_count += 1
 
 ## Keep colony capacity / extraction bookkeeping in sync with a facility's throughput.
 func _register(f : Facility, sign : float) -> void:
@@ -97,6 +100,7 @@ func dissolve() -> void:
 	for f in facilities:
 		_register(f, -1.0)
 		f.colony.facility_count -= 1
+		if f.extracts(): f.colony.extractor_count -= 1
 	facilities.clear()
 
 static func _regional(markets : Array[ColonyMarket], field : String, g : int) -> float:
@@ -181,6 +185,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			facilities.erase(f)
 			_register(f, -1.0)
 			f.colony.facility_count -= 1
+			if f.extracts(): f.colony.extractor_count -= 1
 	if cash < CAPEX * 0.6:
 		return
 	# Candidate actions: build a new facility, or upgrade one of ours. Pick the best payback.
@@ -202,7 +207,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			if unmet < q * 0.5:
 				continue
 			# Local absorption: output beyond what this colony's market can use only sells at crashed prices.
-			var absorb : float = minf(1.0, (c.use[g] * HEADROOM) / q)
+			var absorb : float = minf(1.0, (c.use[g] * HEADROOM + unmet * EXPORT_SHARE) / q)
 			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
 			if c.facility_slots_free() > 0 and cash >= CAPEX * 1.5 and m > 0.0 and CAPEX / m < best_payback:
 				best_payback = CAPEX / m; best_new_c = c; best_new_g = g; best_new_recipe = as_recipe
@@ -215,7 +220,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		var unmet_u : float = _regional(markets, "use", f.good) * HEADROOM - _regional(markets, "capacity", f.good)
 		if unmet_u < delta * 0.5:
 			continue
-		var absorb_u : float = minf(1.0, (f.colony.use[f.good] * HEADROOM) / (f.throughput() + delta))
+		var absorb_u : float = minf(1.0, (f.colony.use[f.good] * HEADROOM + unmet_u * EXPORT_SHARE) / (f.throughput() + delta))
 		var gain : float = _unit_margin(f.colony, f.good, f.recipe_mode) * delta * _input_availability(f.colony, f.good, f.recipe_mode) * absorb_u - UPKEEP * UPKEEP_GROWTH
 		if gain > 0.0 and f.upgrade_cost() / gain < best_payback:
 			best_payback = f.upgrade_cost() / gain; best_up = f; best_new_c = null
@@ -233,6 +238,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		facilities.append(f)
 		_register(f, 1.0)
 		best_new_c.facility_count += 1
+		if f.extracts(): best_new_c.extractor_count += 1
 
 func ship_capacity() -> float:
 	return SHIP_CAPACITY * pow(CLASS_CAP_MULT, ship_class - 1)
@@ -246,7 +252,10 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 	var moved_before : float = moved
 	var last_rate : float = -1.0
 	# Contracts first: deliver inputs that producers have asked for (producer pays the shipping fee).
-	for dest in markets:
+	var n : int = markets.size()
+	rr = (rr + 7) % maxi(n, 1)    # rotate who gets served first, so low-index colonies don't hog the fleet
+	for di in n:
+		var dest : ColonyMarket = markets[(di + rr) % n]
 		if budget <= 0.0:
 			break
 		for req in dest.requests:
@@ -265,7 +274,9 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 			if q <= 0.0:
 				continue
 			var fee : float = SHIP_COST * _dist(src, dest, markets) * q
-			budget -= _dist(src, dest, markets) + LOAD_TIME
+			var ctrip : float = _dist(src, dest, markets) + LOAD_TIME
+			budget -= ctrip
+			last_rate = (q * (dest.price[g] - src.price[g]) + fee) / ctrip
 			src.port_used += 1; dest.port_used += 1
 			src.stock[g] -= q; dest.stock[g] += q
 			req["qty"] -= q

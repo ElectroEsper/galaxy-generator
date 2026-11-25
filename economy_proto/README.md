@@ -139,3 +139,29 @@ Each colony can load/unload only `PORT_BASE (2) + pop/100` deliveries per tick, 
 Figure: `docs/economy_results/fig11_port_congestion.png`; data `run_6000_ports.csv` (new column `port_use`).
 6,000 ticks, 100 planets: fleet settles at 66 ships (uncapped: ~6,000), 100/100 colonies with jobs, pop ~10,400-11,300 (uncapped ~11,000, old capped ~8,500),
 Water ~18-40 (uncapped ~18, capped ~60), Parts ~70, port use ~65%. Fleet growth is slow (53 at tick 600, 63 at 3,000, 66 from tick ~4,500) and stable.
+
+## Parts supply diagnosis (tick 400, 100 planets) - `economy_proto/diag_goods.gd`
+Parts is not short of *capacity* (capacity 311 vs use 240, cover 1.3) yet 77 of 100 colonies are stocked out and the price sits at ~80. Findings:
+- **Ore is the real shortage**: cover 0.49 (use 1,024 vs capacity 500). Metal (2 Ore each) and so Parts are input-starved; nominal producer capacity overstates real output.
+- Ore is **not richness-limited**: 46 Ore sites could yield 1,597, only ~490 is extracted, 31 sites have headroom.
+- Expansion at those sites was blocked by the *local absorption* factor (output only counted against the colony's own Ore use). Fixed with `EXPORT_SHARE`: a site also counts the regional deficit Freight can carry.
+  Effect: Ore stockouts 10 -> 1, Ore/Metal/Parts facilities +20%, but Parts price unchanged (~85) and Parts stockouts 77 -> 68.
+- The next wall is **workforce slots at the Ore sites**: 35 sites have headroom but only 1 has a free slot (avg pop ~100 -> ~12 slots, taken by Water/Food extractors and producers). Overall 1,689 of 2,229 slots are used.
+- Corporations are rich (millions in cash) and the corp cap is filled by 53 Extractor corps vs only 6 Producers: capital is not the constraint.
+Candidates: let big extractor sites take more workers per slot-level (upgrades already do), let producers locate where inputs arrive, or raise slots for resource colonies.
+
+## Extractors take half a worker slot; max facility level 8
+Mines are capital-heavy, so `EXTRACTOR_SLOT = 0.5`: a raw-extraction facility uses half a workforce slot (`ColonyMarket.extractor_count`). `MAX_LEVEL` raised 4 -> 8 (almost unused; level 4 is still the practical top).
+Diagnostic at tick 400 (`diag_goods.gd`): Ore extracted 498 -> 913, Ore cover 0.49 -> 0.55 with 0 stockouts (was 10), Metal stockouts 27 -> 1, Water price 25 -> 10.
+1200-tick run (`run_halfslot_1200.csv`): pop ~11,200, 98-100 colonies with jobs, Ore ~30, Metal ~36-40, Water ~32-38, Food ~63-75, **Parts still ~74**.
+Parts capacity now exceeds use (414 vs 343) but 63 of 100 colonies are still out of stock: Parts is a *distribution* problem (a few producer colonies, many consumers, port slots / voyage size),
+not production. Next: look at where Parts is made vs consumed and at producer-colony port load.
+
+## Parts distribution diagnosis (`economy_proto/diag_parts.gd`)
+Parts capacity is spread over all 100 colonies (~4 each), not concentrated, and Metal is plentiful (0 stockouts), yet 63 colonies are out of Parts. Findings:
+- **The Parts chain is Ore-limited by arithmetic.** 1 Parts = 2 Metal = 4 Ore. Parts use ~340/tick would need ~1,360 Ore for Parts alone, plus Metal for maintenance; the whole economy extracts ~900 Ore.
+  The Parts price therefore pins at ~2x the Metal price (84 vs 42): producers sit at ~zero margin and idle, which looks like "capacity exists but no stock".
+- Every good has the same `BASE_PRICE` (10) although recipes multiply inputs, so chain goods need scarcity pricing just to break even. Tried per-good base prices (Ore 10, Metal 28, Parts 70, Food 20, Water 6):
+  Parts stockouts 63 -> 23, but Ore stockouts 10 -> 43, Food 70, Water 62 and prices in the hundreds: the Ore wall just moves. Reverted; not a fix on its own.
+- Freight contract order now rotates each tick (no low-index bias) and contract deliveries count toward the fleet's marginal-profit growth check. No visible change in Parts, kept as correctness fixes.
+Real levers: more Ore (mining slots/colonies, richer or more numerous Ore sites, recycling), or less Parts demand (maintenance per facility 0.08, hydroponics Parts 0.1, yield 1 Parts per 2 Metal).
