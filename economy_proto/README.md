@@ -394,3 +394,6 @@ customs answers within its monthly run and checks a route only for an option it 
 The rest of freight's cost is structural: closed borders leave many of the cheapest-source/dearest-destination candidates unreachable, so the
 lane search scans more candidates per delivery. Note: reading ownership live (a system settled mid-month blocks routes at once) is slightly more
 correct but changes results after ~30 years; kept the monthly snapshot for now.
+Update: route checks now read ownership live (a newly claimed system closes routes at once); route caches and freighters' memos are cleared when a
+system gets its first owner. Cost: none (4 empires x 200 systems x 100 years: 244 s -> 235 s). One empire: output unchanged. Four empires: results
+shift slightly after ~30 years (year 100 colonies 95/123/84/139 vs 95/124/84/145, population a few % higher).

@@ -199,6 +199,7 @@ func settle(settlers : float, e = null) -> void:
 		richness = intel_for(e)["rich"]
 		if system != null and system.owner == null:
 			system.owner = e
+			if Corporation.world != null: Corporation.world.on_system_claimed()
 	Corporation.invalidate_all()
 	for g in richness:
 		capacity[g] += local_output(g)
