@@ -480,6 +480,8 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 			var src : ColonyMarket = null
 			for m in markets:
 				if m != dest and m.port_free() and m.stock[g] >= 8.0 and (src == null or m.stock[g] > src.stock[g]):
+					if world != null and not world.route_ok(empire, m, dest):
+						continue                     # closed: no treaty with an empire at either end or along the way
 					src = m
 			if src == null:
 				continue
@@ -496,6 +498,10 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 			cash += q * (dest.price[g] - src.price[g]) + fee
 			if req["payer"] != null:
 				req["payer"].cash -= fee
+			if world != null and src.owner != dest.owner:
+				var customs : float = world.tariff_rate(src, dest) * q * dest.price[g]
+				cash -= customs
+				world.record_trade(src, dest, q * dest.price[g], customs)
 			moved += q
 			done += 1
 			last_moves.append({"from": src, "to": dest, "good": g, "qty": q})
@@ -519,6 +525,10 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 					if a == b or not b.port_free():
 						continue
 					var m : float = b.price[g] - a.price[g] - SHIP_COST * _dist(a, b, markets)
+					if world != null and not world.route_ok(empire, a, b):
+						continue                      # closed: no treaty with an empire at either end or along the way
+					if a.owner != b.owner and world != null:
+						m -= world.tariff_rate(a, b) * b.price[g]   # customs paid to the destination's empire
 					if m > best_m:
 						best_m = m; best = [g, a, b]
 		if best_m <= 0.3:
@@ -533,6 +543,8 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		a.port_used += 1; b.port_used += 1
 		a.stock[g] -= q; b.stock[g] += q
 		cash += q * best_m
+		if a.owner != b.owner and world != null:
+			world.record_trade(a, b, q * b.price[g], world.tariff_rate(a, b) * q * b.price[g])
 		moved += q
 		done += 1
 		last_moves.append({"from": a, "to": b, "good": g, "qty": q})

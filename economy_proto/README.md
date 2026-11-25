@@ -365,3 +365,22 @@ drawn as a tinted area with a border in the empire's colour; settled systems use
 rendered to a small image and rebuilt only when a system changes hands. A legend lists each empire's colonies, systems, population and treasury.
 `docs/economy_results/view_territory.png`: year 40 - empires 2 (blue) and 4 (green) hold the flanks, 1 (gold) and 3 (red) are squeezed into the centre,
 where borders interleave system by system.
+
+## Relations, closed borders and goal-oriented diplomacy
+**Relations** (per pair of empires, monthly): first contact when one has charted space the other owns; opinion drifts toward
+`8 x log(1 + trade) - 3 x shared border segments - 15 x incidents + goodwill` (incidents = settling a system the other had surveyed; incidents
+and goodwill decay 2%/month). Stances: friendly >= 25, hostile <= -25, embargo <= -60; turning hostile cancels treaties. Customs on cross-border
+deliveries go to the destination's treasury: 0% friendly, 10% neutral, 35% hostile, halved under a trade treaty. Runner: `REL,` rows yearly, `EVENT,` lines.
+**Closed borders**: an empire's territory (nearest claimed system within 70 px, the same rule the map shader draws) is closed to foreigners. A freighter of
+empire F may only use a route if F has a *trade treaty* with each foreign empire at either end and a *passage treaty* with every other empire whose
+territory the route crosses (sampled every 20 px; cached per month). Enclaves stay enclaves; even an empire's own colonies can be cut off by a neighbour.
+**Diplomacy as GOAP** (`diplomacy.gd`, once a year per empire): goals - secure a good it's short of (avg price >= 1.8x base) from the met empire that has it
+cheapest; reach a trade partner whose capital is behind a third empire's territory; ease tension with a hostile neighbour; open trade with a friendly one.
+Actions with preconditions/effects - propose a trade treaty (needs opinion >= -10), propose passage (needs >= 10, pays a 5k fee), send aid (20k, +20 goodwill).
+A uniform-cost search (depth 4) finds the cheapest plan; the empire carries out its first step. Partners decide by their own interests: a trade treaty is
+accepted when opinion/20 + benefit >= 1 (benefit grows with goods they're short of that the proposer has cheap); passage when opinion >= 10.
+Refusals put a 5-year cooldown on re-proposing.
+Result, 4 empires, 200 systems, 100 years (`fig21_diplomacy.png`, `scaling/empires4_diplomacy.out`): first contacts in years 18-40; Empire 3 is
+refused a trade treaty 15 times over 25 years and keeps sending aid, then is accepted everywhere in years 58-62 once others need its Water;
+passage treaties let Empires 1 and 2 reach each other through Empire 4; Empires 1 and 4, with a 30-segment border, fall out twice (year 69: treaties
+cancelled; reconciled by aid in years 77-79; hostile again near year 97). One empire: output unchanged. Cost: 306 s (route checks), vs 207 s.
