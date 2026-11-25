@@ -20,7 +20,7 @@ const SHIP_COST := 0.4        # per unit per distance step
 const EXPORT_SHARE := 1.0    # share of the regional deficit a site can count on exporting to (Freight carries it)
 const PAYBACK_HORIZON := 25.0 # ticks; expand only if CAPEX / margin < this
 const REQUEST_COVER := 4.0     # producers ask Freight to keep this many ticks of inputs on the shelf
-const MAX_LEVEL := 4
+const MAX_LEVEL := 8
 const LEVEL_BONUS := 0.6        # each level adds this fraction of base output
 const UPKEEP_GROWTH := 0.25     # each level adds this fraction of base upkeep (jobs/slots stay the same)
 const EXTRACT_CAP_MULT := 40.0  # a site can't be extracted beyond richness x this per good, however upgraded
@@ -73,6 +73,7 @@ func seed_facility(c : ColonyMarket, g : int) -> void:
 	facilities.append(f)
 	_register(f, 1.0)
 	c.facility_count += 1
+	if f.extracts(): c.extractor_count += 1
 
 ## Keep colony capacity / extraction bookkeeping in sync with a facility's throughput.
 func _register(f : Facility, sign : float) -> void:
@@ -98,6 +99,7 @@ func dissolve() -> void:
 	for f in facilities:
 		_register(f, -1.0)
 		f.colony.facility_count -= 1
+		if f.extracts(): f.colony.extractor_count -= 1
 	facilities.clear()
 
 static func _regional(markets : Array[ColonyMarket], field : String, g : int) -> float:
@@ -182,6 +184,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			facilities.erase(f)
 			_register(f, -1.0)
 			f.colony.facility_count -= 1
+			if f.extracts(): f.colony.extractor_count -= 1
 	if cash < CAPEX * 0.6:
 		return
 	# Candidate actions: build a new facility, or upgrade one of ours. Pick the best payback.
@@ -234,6 +237,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		facilities.append(f)
 		_register(f, 1.0)
 		best_new_c.facility_count += 1
+		if f.extracts(): best_new_c.extractor_count += 1
 
 func ship_capacity() -> float:
 	return SHIP_CAPACITY * pow(CLASS_CAP_MULT, ship_class - 1)

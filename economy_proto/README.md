@@ -149,3 +149,10 @@ Parts is not short of *capacity* (capacity 311 vs use 240, cover 1.3) yet 77 of 
 - The next wall is **workforce slots at the Ore sites**: 35 sites have headroom but only 1 has a free slot (avg pop ~100 -> ~12 slots, taken by Water/Food extractors and producers). Overall 1,689 of 2,229 slots are used.
 - Corporations are rich (millions in cash) and the corp cap is filled by 53 Extractor corps vs only 6 Producers: capital is not the constraint.
 Candidates: let big extractor sites take more workers per slot-level (upgrades already do), let producers locate where inputs arrive, or raise slots for resource colonies.
+
+## Extractors take half a worker slot; max facility level 8
+Mines are capital-heavy, so `EXTRACTOR_SLOT = 0.5`: a raw-extraction facility uses half a workforce slot (`ColonyMarket.extractor_count`). `MAX_LEVEL` raised 4 -> 8 (almost unused; level 4 is still the practical top).
+Diagnostic at tick 400 (`diag_goods.gd`): Ore extracted 498 -> 913, Ore cover 0.49 -> 0.55 with 0 stockouts (was 10), Metal stockouts 27 -> 1, Water price 25 -> 10.
+1200-tick run (`run_halfslot_1200.csv`): pop ~11,200, 98-100 colonies with jobs, Ore ~30, Metal ~36-40, Water ~32-38, Food ~63-75, **Parts still ~74**.
+Parts capacity now exceeds use (414 vs 343) but 63 of 100 colonies are still out of stock: Parts is a *distribution* problem (a few producer colonies, many consumers, port slots / voyage size),
+not production. Next: look at where Parts is made vs consumed and at producer-colony port load.

@@ -40,6 +40,15 @@ func _initialize() -> void:
 		var kn : String = Corporation.Kind.find_key(k.kind)
 		kinds[kn] = kinds.get(kn, 0) + 1
 	print("corps: ", kinds)
+	var hist := {}
+	var cashless := 0
+	for k in sim.corps:
+		for f in k.facilities:
+			if f.good == Goods.ORE:
+				hist[f.level] = hist.get(f.level, 0) + 1
+				var room : float = k._site_room(f.colony, f.good, f.recipe_mode)
+				if room < f.throughput() / f.level_mult() * Corporation.LEVEL_BONUS: cashless += 1
+	print("ore facility levels: ", hist, " blocked by site room: ", cashless)
 	var slots := 0; var used := 0
 	for c in sim.markets:
 		slots += int(c.max_pop / 8.0); used += c.facility_count

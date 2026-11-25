@@ -17,6 +17,7 @@ var use_this_tick : Dictionary = {}
 var capacity : Dictionary = {}     # units/tick that facilities here can add, per good
 var max_pop : float = 400.0        # habitability ceiling (from the planet in the real game)
 var extraction : Dictionary = {}   # raw good -> output of corporate extraction facilities here (capped by richness)
+var extractor_count : int = 0     # of which raw-extraction facilities (they need fewer workers)
 var facility_count : int = 0       # facilities built here (kept in sync by Corporation)
 var requests : Array = []          # input requests posted by producers this tick (served by Freight)
 var growth_enabled : bool = true   # births + maintenance demand (false = PR #8 baseline behaviour)
@@ -49,8 +50,12 @@ const SUBSISTENCE_FOOD := BASE_SELF_POP * 0.05
 const SUBSISTENCE_PARTS := BASE_SELF_POP * 0.012
 
 ## Workforce caps how many facilities a colony can host (spreads industry across colonies).
+## Raw extraction is capital-heavy: a mine takes only this share of a worker slot.
+const EXTRACTOR_SLOT := 0.5
+
 func facility_slots_free() -> int:
-	return int(floor(max_pop / JOBS_PER_FACILITY)) - facility_count
+	var load : float = float(facility_count - extractor_count) + float(extractor_count) * EXTRACTOR_SLOT
+	return int(floor(max_pop / JOBS_PER_FACILITY - load))
 
 func local_output(g : int) -> float:
 	return richness.get(g, 0.0) * 0.25
