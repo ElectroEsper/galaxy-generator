@@ -30,6 +30,10 @@ func _ready() -> void:
 	sim = load("res://economy_proto/economy_sim.gd").new()
 	sim.auto_run = false
 	sim.use_galaxy = true
+	sim.all_planets = true
+	sim.galaxy_colonies = 100
+	sim.max_corps = 60
+	sim.colonize = true
 	add_child(sim)
 	sim.shipment_made.connect(_on_shipment)
 
@@ -73,6 +77,18 @@ func _draw() -> void:
 			var a : ColonyMarket = markets[i]; var b : ColonyMarket = markets[j]
 			var heat : float = lane_heat.get("%s-%s" % [a.name, b.name], 0.0)
 			draw_line(a.position, b.position, Color(0.4, 0.5, 0.7, 0.12 + heat * 0.08), 1.0 + heat * 0.5)
+	# Frontier: grey dot = never surveyed, ring = surveyed (gold if a deposit is known, unsold claim = filled)
+	for c in sim.frontier:
+		if c.settled:
+			continue
+		if c.surveys == 0:
+			draw_circle(c.position, 2.5, Color(0.55, 0.55, 0.6, 0.5))
+		else:
+			var known : bool = not c.richness.is_empty()
+			var rc : Color = Color(0.95, 0.8, 0.35, 0.9) if known else Color(0.6, 0.65, 0.75, 0.6)
+			if not c.claims.is_empty():
+				draw_circle(c.position, 3.0, rc)
+			draw_arc(c.position, 5.0, 0.0, TAU, 16, rc, 1.2)
 	# Colonies
 	for c in markets:
 		var r : float = 8.0 + sqrt(c.pop) * 0.9
@@ -102,7 +118,7 @@ func _draw() -> void:
 		var n : String = Corporation.Kind.find_key(k.kind)
 		kinds[n] = kinds.get(n, 0) + 1
 		cash_total += k.cash
-	draw_string(font, Vector2(16, 24), "tick %d   corps %s   promotions %d   attractions %d   ships in transit %d" % [sim.tick_count, kinds, sim.promotions, sim.attractions, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+	draw_string(font, Vector2(16, 24), "%s (tick %d)   colonies %d   surveyed %d   corps %s   ships in transit %d" % [sim.date_label(), sim.tick_count, markets.size(), sim.frontier.filter(func(c): return c.surveys > 0).size(), kinds, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
 	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f   colour: green = supplied, red = Food/Parts shortage" % speed_mult, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
 	var lx : float = 16.0
 	for g in Goods.ALL:

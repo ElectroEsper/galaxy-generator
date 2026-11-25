@@ -3,7 +3,10 @@ extends RefCounted
 ## Profit-driven agent. Each tick: operate facilities -> maybe close losers ->
 ## maybe expand into the best opportunity (payback-gated, saturation-aware).
 
-enum Kind {EXTRACTOR, PRODUCER, FREIGHT}
+enum Kind {EXTRACTOR, PRODUCER, FREIGHT, SURVEYOR}
+
+## The sim, for agents that act beyond settled markets (surveying the frontier, founding outposts). Null in old setups.
+static var world : Node = null
 
 const CAPEX := 80.0
 const UPKEEP := 1.0
@@ -27,6 +30,24 @@ const EXTRACT_CAP_MULT := 40.0  # a site can't be extracted beyond richness x th
 const HEADROOM := 1.3          # build until capacity ~ HEADROOM x use
 const CLOSE_AFTER := 20       # consecutive losing ticks before closing a facility
 const INSOLVENT_AFTER := 15   # ticks with cash < 0 before dissolving
+# --- Surveying & colonization (1 tick = 1 month) ---
+const SURVEY_MONTHS := 6.0       # time on site per survey, plus travel
+const SURVEY_UPKEEP := 2.0       # per survey ship per tick
+const SURVEY_SHIP_COST := 150.0
+const SURVEY_YIELD := 0.6        # share of true richness a good survey reveals (decays as more is found)
+const SURVEY_DECAY := 8.0        # discovery decay; divided by richness on the 0-10 scale, so rich worlds keep yielding
+const SURVEY_CONTRACT := 20.0    # the state pays this for each first survey of a planet
+const CLAIM_PRICE := 150.0       # per unit of revealed richness, paid by the first extractor to work the deposit
+const MAX_UNSOLD_CLAIMS := 6     # a surveyor stops buying ships while this many finds are still unsold
+const OUTPOST_COST := 160.0      # founding an outpost on a surveyed planet (on top of the facility)
+const OUTPOST_SETTLERS := 20.0   # people moved from an existing colony
+const OUTPOST_PAYBACK := 60.0    # months: a new colony is a long-term investment, judged on a longer horizon
+# --- Construction: building and upgrading consume materials delivered to the site, and take time ---
+const BUILD_METAL := 10.0        # per new facility (upgrades: x (0.4 + 0.2 x level))
+const BUILD_PARTS := 4.0
+const BUILD_MONTHS := 6          # minimum construction time
+const OUTPOST_METAL := 15.0      # habitat for the first settlers, on top of the facility
+const OUTPOST_PARTS := 6.0
 
 class Facility:
 	var colony : ColonyMarket
@@ -34,6 +55,11 @@ class Facility:
 	var recipe_mode : bool = false   # true: manufactures `good` from inputs; false: extracts it from the ground
 	var level : int = 1
 	var losing_ticks : int = 0
+	var build : Dictionary = {}      # materials still to be delivered (good -> qty)
+	var build_ticks : int = 0        # months of construction left
+	var pending_level : int = 0      # an upgrade under construction (0 = none)
+	func building() -> bool:
+		return build_ticks > 0 or not build.is_empty()
 	func _init(c : ColonyMarket, g : int, recipe : bool = false) -> void:
 		colony = c; good = g; recipe_mode = recipe
 	func extracts() -> bool:
@@ -49,6 +75,8 @@ class Facility:
 	## Cost to go from the current level to the next.
 	func upgrade_cost() -> float:
 		return CAPEX * (0.4 + 0.2 * level)
+	func upgrade_scale() -> float:
+		return 0.4 + 0.2 * level
 
 var kind : Kind
 var cash : float
@@ -69,8 +97,8 @@ func _init(k : Kind, starting_cash : float) -> void:
 	kind = k; cash = starting_cash
 
 ## A local business graduating into a corporation: first facility is at home.
-func seed_facility(c : ColonyMarket, g : int) -> void:
-	var f := Facility.new(c, g)
+func seed_facility(c : ColonyMarket, g : int, recipe : bool = false) -> void:
+	var f := Facility.new(c, g, recipe)
 	facilities.append(f)
 	_register(f, 1.0)
 	c.facility_count += 1
@@ -112,6 +140,8 @@ static func _regional(markets : Array[ColonyMarket], field : String, g : int) ->
 func run(markets : Array[ColonyMarket]) -> void:
 	if kind == Kind.FREIGHT:
 		_run_freight(markets)
+	elif kind == Kind.SURVEYOR:
+		_run_survey(markets)
 	else:
 		_run_facilities()
 		_review_and_expand(markets)
@@ -121,6 +151,10 @@ func run(markets : Array[ColonyMarket]) -> void:
 func _run_facilities() -> void:
 	for f in facilities:
 		var c : ColonyMarket = f.colony
+		if f.building():
+			_advance_build(f)
+			if f.pending_level == 0:
+				continue            # a new facility produces nothing until it's finished; an upgrading one keeps running
 		if f.extracts():
 			# Same discipline as producers: don't extract at a loss; idle until price recovers.
 			if _unit_margin(c, f.good, false) <= 0.0:
@@ -209,10 +243,30 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			# Local absorption: output beyond what this colony's market can use only sells at crashed prices.
 			var absorb : float = minf(1.0, (c.use[g] * HEADROOM + unmet * EXPORT_SHARE) / q)
 			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
-			if c.facility_slots_free() > 0 and cash >= CAPEX * 1.5 and m > 0.0 and CAPEX / m < best_payback:
-				best_payback = CAPEX / m; best_new_c = c; best_new_g = g; best_new_recipe = as_recipe
+			var cost_n : float = CAPEX + _materials_cost(c, 1.0)
+			if c.facility_slots_free() > 0 and cash >= cost_n * 1.5 and m > 0.0 and cost_n / m < best_payback:
+				best_payback = cost_n / m; best_new_c = c; best_new_g = g; best_new_recipe = as_recipe
+	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
+	var best_frontier : bool = false
+	if kind == Kind.EXTRACTOR and world != null:
+		for c in world.frontier:
+			if c.settled or c.richness.is_empty() or not world.can_send_settlers(c):
+				continue
+			var near : ColonyMarket = world.nearest_settled(c)
+			for g in c.richness:
+				var q : float = c.richness[g]
+				var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
+				if unmet < q * 0.5:
+					continue
+				var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
+				var m : float = (near.price[g] - Goods.RAW_COST[g] - SHIP_COST * _dist(c, near, markets)) * q * absorb - UPKEEP
+				var cost : float = CAPEX + OUTPOST_COST + claim_fee(c, g) + _materials_cost(near, 1.0, true)
+				# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
+				var pb : float = cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK
+				if cash >= cost * 1.2 and m > 0.0 and pb < best_payback:
+					best_payback = pb; best_new_c = c; best_new_g = g; best_new_recipe = false; best_frontier = true
 	for f in facilities:
-		if f.level >= MAX_LEVEL:
+		if f.level >= MAX_LEVEL or f.building():
 			continue
 		var delta : float = f.throughput() / f.level_mult() * LEVEL_BONUS      # extra output from one more level
 		if _site_room(f.colony, f.good, f.recipe_mode) < delta or cash < f.upgrade_cost():
@@ -222,23 +276,59 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 			continue
 		var absorb_u : float = minf(1.0, (f.colony.use[f.good] * HEADROOM + unmet_u * EXPORT_SHARE) / (f.throughput() + delta))
 		var gain : float = _unit_margin(f.colony, f.good, f.recipe_mode) * delta * _input_availability(f.colony, f.good, f.recipe_mode) * absorb_u - UPKEEP * UPKEEP_GROWTH
-		if gain > 0.0 and f.upgrade_cost() / gain < best_payback:
-			best_payback = f.upgrade_cost() / gain; best_up = f; best_new_c = null
+		var cost_u : float = f.upgrade_cost() + _materials_cost(f.colony, f.upgrade_scale())
+		if gain > 0.0 and cost_u / gain < best_payback:
+			best_payback = cost_u / gain; best_up = f; best_new_c = null; best_frontier = false
 	if best_payback >= PAYBACK_HORIZON:
 		return
 	if best_up != null:
 		cash -= best_up.upgrade_cost()
-		_register(best_up, -1.0)
-		best_up.level += 1
-		_register(best_up, 1.0)
+		best_up.pending_level = best_up.level + 1
+		best_up.build = {Goods.METAL: BUILD_METAL * best_up.upgrade_scale(), Goods.PARTS: BUILD_PARTS * best_up.upgrade_scale()}
+		best_up.build_ticks = BUILD_MONTHS
 		upgrades += 1
 	elif best_new_c != null:
+		if best_frontier:
+			if not world.found_outpost(best_new_c):
+				return
+			cash -= OUTPOST_COST
 		cash -= CAPEX
+		if not best_new_recipe:
+			_buy_claim(best_new_c, best_new_g)
 		var f := Facility.new(best_new_c, best_new_g, best_new_recipe)
+		f.build = {Goods.METAL: BUILD_METAL + (OUTPOST_METAL if best_frontier else 0.0), Goods.PARTS: BUILD_PARTS + (OUTPOST_PARTS if best_frontier else 0.0)}
+		f.build_ticks = BUILD_MONTHS
 		facilities.append(f)
-		_register(f, 1.0)
+		_register(f, 1.0)          # planned capacity counts at once, so others don't pile onto the same gap
 		best_new_c.facility_count += 1
 		if f.extracts(): best_new_c.extractor_count += 1
+
+## Materials for a project at colony c, at today's local prices.
+func _materials_cost(c : ColonyMarket, scale : float, outpost : bool = false) -> float:
+	var metal : float = BUILD_METAL * scale + (OUTPOST_METAL if outpost else 0.0)
+	var parts : float = BUILD_PARTS * scale + (OUTPOST_PARTS if outpost else 0.0)
+	return metal * c.price[Goods.METAL] + parts * c.price[Goods.PARTS]
+
+## Construction: take what's on the colony's shelf (paying for it), ask Freight for the rest.
+func _advance_build(f : Facility) -> void:
+	var c : ColonyMarket = f.colony
+	f.build_ticks = maxi(0, f.build_ticks - 1)
+	for g in f.build.keys():
+		var want : float = f.build[g]
+		c.note_use(g, want / float(BUILD_MONTHS))      # construction is demand like any other
+		var take : float = minf(c.stock[g], want)
+		if take < want:
+			c.requests.append({"good": g, "qty": want - take, "payer": self})
+		c.stock[g] -= take
+		cash -= take * c.price[g]
+		f.build[g] = want - take
+		if f.build[g] <= 0.01:
+			f.build.erase(g)
+	if not f.building() and f.pending_level > 0:
+		_register(f, -1.0)
+		f.level = f.pending_level
+		f.pending_level = 0
+		_register(f, 1.0)
 
 func ship_capacity() -> float:
 	return SHIP_CAPACITY * pow(CLASS_CAP_MULT, ship_class - 1)
@@ -352,3 +442,84 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 func _dist(a : ColonyMarket, b : ColonyMarket, markets : Array[ColonyMarket]) -> float:
 	# Map-space distance (px) -> lane cost units; keeps the hand-made map at roughly 1.5-3.
 	return 1.0 + a.position.distance_to(b.position) / 200.0
+
+
+# ---------------------------------------------------------------- Surveying
+var survey_jobs : Array = []      # [{"target": ColonyMarket, "eta": ticks left}]
+var surveys_done : int = 0
+var claims_sold : int = 0
+
+func claim_fee(c : ColonyMarket, g : int) -> float:
+	return CLAIM_PRICE * c.claims[g]["value"] if c.claims.has(g) else 0.0
+
+## The first extractor to work a surveyed deposit buys the claim from the surveyor who found it.
+func _buy_claim(c : ColonyMarket, g : int) -> void:
+	if not c.claims.has(g):
+		return
+	var fee : float = claim_fee(c, g)
+	var owner : Corporation = c.claims[g]["owner"]
+	cash -= fee
+	owner.cash += fee
+	owner.claims_sold += 1
+	c.claims.erase(g)
+
+func unsold_claims() -> int:
+	var n : int = 0
+	if world == null:
+		return 0
+	for c in world.frontier:
+		for g in c.claims:
+			if c.claims[g]["owner"] == self: n += 1
+	return n
+
+func _run_survey(markets : Array[ColonyMarket]) -> void:
+	last_moves = []
+	for j in survey_jobs.duplicate():
+		j["eta"] -= 1.0
+		if j["eta"] <= 0.0:
+			_complete_survey(j["target"])
+			survey_jobs.erase(j)
+	var free : int = (1 + ships) - survey_jobs.size()
+	for i in free:
+		var t : ColonyMarket = _pick_survey_target(markets)
+		if t == null:
+			break
+		survey_jobs.append({"target": t, "eta": SURVEY_MONTHS + _dist(t, world.nearest_settled(t), markets) / SHIP_TIME})
+	cash -= SURVEY_UPKEEP * (1 + ships)
+	if cash > SURVEY_SHIP_COST * 4.0 and unsold_claims() < MAX_UNSOLD_CLAIMS:
+		cash -= SURVEY_SHIP_COST
+		ships += 1
+
+## Surveyors can't see true richness: an unsurveyed planet is worth a flat prior, a surveyed one a little
+## less each time (they can't tell how much is left). Value per month of ship time, nearest first.
+func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
+	var best : ColonyMarket = null
+	var best_v : float = 0.0
+	var busy : Dictionary = {}
+	for k in world.corps:
+		if k.kind == Kind.SURVEYOR:
+			for j in k.survey_jobs: busy[j["target"]] = true
+	for c in world.frontier + markets:
+		if busy.has(c):
+			continue
+		var known : float = 0.0
+		for g in c.richness: known += c.richness[g]
+		var ev : float = 1.0 if c.surveys == 0 else 0.4 * known / float(c.surveys)
+		var v : float = ev / (SURVEY_MONTHS + _dist(c, world.nearest_settled(c), markets) / SHIP_TIME)
+		if v > best_v:
+			best_v = v; best = c
+	return best
+
+func _complete_survey(t : ColonyMarket) -> void:
+	if t.surveys == 0:
+		cash += SURVEY_CONTRACT          # paid by the state treasury
+		if world != null: world.treasury -= SURVEY_CONTRACT
+	t.surveys += 1
+	surveys_done += 1
+	for g in t.hidden_richness:
+		var r : float = t.hidden_richness[g]
+		var amount : float = r * randf_range(0.4, 1.0) * exp(-SURVEY_DECAY / (r * 5.0) * t.found_frac.get(g, 0.0)) * SURVEY_YIELD
+		var inc : float = t.reveal(g, amount)
+		if inc > 0.0 and t.extraction.get(g, 0.0) <= 0.0:
+			var prev : float = t.claims[g]["value"] if t.claims.has(g) and t.claims[g]["owner"] == self else 0.0
+			t.claims[g] = {"owner": self, "value": prev + inc}

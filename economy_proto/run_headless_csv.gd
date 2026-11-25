@@ -8,11 +8,20 @@ func _initialize() -> void:
 	var gc = load("res://economy_proto/galaxy_colonies.gd")
 	var growth : bool = true
 	var ticks : int = 600
+	var colonize : bool = false
+	var sim_taxes : bool = true
+	var sim_seed : int = 7
 	for a in OS.get_cmdline_user_args():
 		if a == "growth=0":
 			growth = false
 		elif a.begins_with("food="):
 			gc.food_mult = float(a.get_slice("=", 1))
+		elif a.begins_with("seed="):
+			sim_seed = int(a.get_slice("=", 1))
+		elif a == "taxes=0":
+			sim_taxes = false
+		elif a == "colonize=1":
+			colonize = true
 		elif a.begins_with("ticks="):
 			ticks = int(a.get_slice("=", 1))
 	var sim = load("res://economy_proto/economy_sim.gd").new()
@@ -22,6 +31,9 @@ func _initialize() -> void:
 	sim.max_corps = 60
 	sim.growth_enabled = growth
 	sim.auto_run = false
+	sim.colonize = colonize
+	sim.taxes = sim_taxes
+	sim.rng_seed = sim_seed
 	root.add_child(sim)
 	sim.setup()
 	var food_sites : int = 0

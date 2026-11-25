@@ -171,3 +171,60 @@ Real levers: more Ore (mining slots/colonies, richer or more numerous Ore sites,
 Tick 400 diagnostic: Parts stockouts 63 -> 31 colonies, Parts price 84 -> 66, Food stockouts 57 -> 47, Metal stockouts 4.
 1200-tick run (`run_salvage_1200.csv`) vs the half-slot run: pop 11,181 -> 11,708, 100/100 colonies with jobs, Parts ~74 -> ~62, Food ~63 -> ~61, Ore/Metal/Water about the same (~32/38/35).
 Everything still reads "in shortage" by the metric (price > 2x base for Food+Parts), but the gap is closing slowly; the remaining Ore wall (46 Ore sites, workforce slots) is the structural limit.
+
+## Asteroid belts hold the Ore; ports were the choke (`diag_belts.gd`)
+Belts are already colonies with Ore, but at tick 400 the 18 belts (990 of the 1,600 Ore site capacity) extracted only 136 (14%) and sat on **400-2,400 unsold Ore each at price 1-5**, so their mines idled while Metal producers elsewhere starved.
+The Freight fleet was the bottleneck, not richness: ships at class 4 (48 units) ran 15% full with 21% of sailing time unused, because small belt colonies (pop ~65) had only 2 port slots each.
+`PORT_BASE` 2 -> 4. Tick 400: Ore extracted 590 -> 853 (belts 136 -> 280), Food stockouts 47 -> 37. 1200 ticks (`run_ports4_1200.csv`), vs previous (salvage) run:
+pop 11,708 -> 13,575, Ore 32 -> 21, Metal 38 -> 26, Parts 62 -> 55, Food 61 -> 45, Water 35 -> 12, fleet 58 -> 76 ships, all 100 colonies with jobs.
+Remaining oddity: class-4 hulls are mostly empty (fill 0.15-0.3) because the class refit happens in the first ~40 ticks, before real flows exist; gate refits on hold fill.
+
+## Time scale: one tick = one month
+`EconomySim.MONTHS_PER_TICK = 1.0`, with `years_elapsed()` / `date_label()` (shown in the HUD as "year Y, month M"). Rates are now tuned against that:
+- births 0.3%/tick (~3.7%/year with food and room; was 0.8%, ~10%/year), starvation 2%/tick (~21%/year), payback horizon 25 ticks (~2 years), a freight run ~ a month.
+- 6,000 ticks = 500 years; 600 ticks = 50 years.
+Effect (`run_birth003_1200.csv` vs `run_ports4_1200.csv`): slower early growth (pop at tick 100: 5,500 vs 6,200; tick 300: 8,500 vs 9,800), converging by tick ~1000 (12,400 vs 13,600 at 1,200; all 100 colonies with jobs, Parts ~58, Food ~55).
+Use this scale when picking new constants (facility build times, ship speed, tech/upgrade durations).
+
+## Colonization from a Capital World, Surveyors and outposts (`colonize = true`)
+Run: `run_headless_csv.gd -- growth=1 ticks=600 colonize=1` (the 2D view now starts in this mode). The old all-planets-settled mode is unchanged (`colonize` off).
+- **Capital World**: the best-scoring planet that can feed and equip itself (needs Ore, plus Food or Water). It starts with 600 people (ceiling 3,000), an established
+  economy sized to them (Extractor + Producer founding firms, shelves at normal cover) and fully known deposits. Its home star system is charted from the start.
+  A capital without Ore can't run Metal/Parts; 1,500 people need ~150 Ore/month, far more than one planet's deposit (~16), so the capital must colonize for Ore.
+- **Frontier**: every other planet is unsettled, pop 0, deposits hidden (`hidden_richness`). `richness` now means *known* richness.
+- **Surveyor** corporation (`Kind.SURVEYOR`, one state-chartered at start, re-chartered if it goes bankrupt): survey ships spend 6 months on site plus travel.
+  A survey reveals part of each deposit's true richness, decaying as more is found and more slowly on rich worlds (resurveys keep finding more on rich planets).
+  Surveyors can't see true richness: unsurveyed planets have a flat prior, resurveys are worth less each time; they pick the best value per month of ship time.
+  Income: a state contract per first survey (20) and **claims**: each find becomes a claim the first extractor to work that deposit must buy (150 per richness unit).
+  They buy more ships only while fewer than 6 finds are unsold.
+- **Outposts**: an Extractor can found an outpost on a surveyed, unsettled planet (cost 160 + facility + claim), judged on the nearest colony's price minus shipping.
+  20 settlers are recruited from a colony of 100+ people (well-staffed and close preferred).
+- **Migration is now zero-sum** in this mode: people move from better-staffed colonies (pop vs. jobs target above average) toward worse-staffed ones; births add people.
+Result, 600 ticks (50 years), seed 7 (`run_colonize.csv`, `fig12_colonization.png`, `view_colonize.png`):
+first outposts in years 5-8, 9 colonies by year 28 (all in or near the home system), all 99 other planets surveyed by year 28 with 2 survey ships,
+population 600 -> 2,010, facilities 142 -> 386, prices low after the first years (Parts ~30, Food/Ore ~5). An early Parts crunch (years 2-5) clears once the first Ore outposts open.
+Open: expansion stalls after year 28 because demand is met and outposts are judged only on current shortages (no speculative or long-distance colonization);
+32 Extractor corporations exist but most are idle; claims sell slowly (4 of dozens of finds).
+
+## Taxes and a state treasury
+`EconomySim.taxes` (default on; `taxes=0` on the CSV runner to disable): every corporation pays 25% of its monthly profit plus 0.5%/month (~6%/year) on cash above 800.
+It goes to `treasury`, which now pays the survey contracts and Surveyor charters. New metrics: `treasury`, `corp_cash`, `tax_collected`. Runs now take `seed=N`.
+Colonization runs, 50 years, seeds 7/11/23/31 (`fig13_taxes.png`, `run_col_s<seed>_t<0|1>.csv`):
+- Corporate cash falls about 3x (seed 7: 13.8M -> 4.6M; range 1.6-5.8M taxed vs 6.8-15.3M untaxed), but it is still millions against an 80-cash facility.
+- The treasury reaches 4.8-10.4M with almost nothing to spend it on.
+- Expansion barely changes: colonies 9/6/12/11 untaxed vs 15/6/10/14 taxed, facilities mixed, population the same. The differences are within seed-to-seed noise.
+Why: corporations decide on payback (cost vs. monthly margin), not on cash, and a facility (80) earns its cost back in a few months, so profits dwarf every investment.
+A cash drain can't bind until building costs scale with what facilities earn (e.g. capex paid in Metal/Parts as construction materials, or capex tied to output value).
+
+## Construction materials
+New facilities and upgrades are now construction projects: Metal and Parts must be delivered to the site (taken from the colony's shelf at local prices, the rest requested from Freight)
+and they take at least 6 months. A new facility produces nothing until finished; an upgrading one keeps running at its old level. Materials count as demand.
+Amounts: new facility 10 Metal + 4 Parts; upgrades x(0.4 + 0.2 x level); an outpost adds 15 Metal + 6 Parts (habitat). The payback test includes materials at today's prices.
+Outposts are judged on a 60-month horizon instead of 25 (a new colony is a long-term investment). Metric: `under_construction`.
+First try (20+10 per facility, 30+15 per outpost, 25-month horizon for outposts): no outpost in 50 years on seeds 7 and 23. The Ore-poor capital's Parts sit at the price cap,
+an outpost then costs ~3,600 instead of ~390, and without Ore outposts Parts never get cheaper: a poverty trap. Hence the lighter amounts and the longer outpost horizon.
+Result, 4 seeds, 50 years, vs taxes-only (`fig14_construction.png`, `run_build_s<seed>_t1.csv`):
+- Slow start, then acceleration: 1-2 colonies for the first 10-35 years, then 12/13/18/21 colonies by year 50 (taxes-only: 15/6/10/14). Note this also includes the longer outpost horizon.
+- Fewer facilities on 3 of 4 seeds (434->325, 222->198, 677->465; 374->393), population a bit lower (2,013->1,352, 2,069->1,816, 2,081->1,790; seed 11 879->1,041).
+- Corporate cash 3-6x lower (4.6M -> 0.8M on seed 7), treasury 1.7-3.8M: capital now binds.
+- Parts is the scarce good again (~55-65 vs ~16-24), because construction competes with consumers and maintenance for it.
