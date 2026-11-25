@@ -18,6 +18,7 @@ var surveys_ordered : int = 0
 var sector_events : int = 0
 var settlements : int = 0
 var customs_collected : float = 0.0
+var refusals : Dictionary = {}       # other empire id -> year it last refused a proposal (diplomacy cooldown)
 # Known space: systems this empire has charted (SystemNode -> true)
 var known : Dictionary = {}
 
