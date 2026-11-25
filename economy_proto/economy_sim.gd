@@ -288,7 +288,18 @@ func _state_colonize() -> void:
 	state_spent += cost
 	shipment_made.emit(donor, best, Goods.FOOD, STATE_SETTLERS)
 
+var _known_frontier : Array = []
+var _known_valid : bool = false
+
+## Frontier bodies in charted systems (what surveyors may target), in frontier order; rebuilt when space is charted.
+func known_frontier() -> Array:
+	if not _known_valid:
+		_known_frontier = frontier.filter(func(c): return is_known(c))
+		_known_valid = true
+	return _known_frontier
+
 func _reveal_around(pos : Vector2, radius : float) -> int:
+	_known_valid = false
 	var n : int = 0
 	for sys in GalaxyColonies.systems:
 		if not sys.known and sys.position.distance_to(pos) <= radius:

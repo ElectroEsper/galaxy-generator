@@ -588,8 +588,8 @@ func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
 	for k in world.corps:
 		if k.kind == Kind.SURVEYOR:
 			for j in k.survey_jobs: busy[j["target"]] = true
-	for c in world.frontier + markets:
-		if busy.has(c) or not world.is_known(c):
+	for c in world.known_frontier() + markets:
+		if busy.has(c):
 			continue
 		var known : float = 0.0
 		for g in c.richness: known += c.richness[g]

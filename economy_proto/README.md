@@ -307,3 +307,11 @@ afford that isn't a good its own plants are idling on, then compares it with its
   Remaining time: Extractors 39 s (own upgrades + facility runs), Surveyors 19 s (target scan over every body), Freight 4 s, Producers 3 s.
 - Exploration on that run: survey fleet 2 -> ~37 ships by year 70, then 11 by year 100; 31 sector discoveries spread over years 11-97, so it is one long boom
   rather than waves (discoveries keep coming as each new sector is surveyed fast). Waves would need discoveries to wait for a sector to be finished, or rarer events.
+
+## 1,000 star systems (10,752 bodies), 100 years
+- First run (opportunity board): 130 s total. Surveyors had become the biggest cost (74 s, 57%) because each free ship scanned all 10,752 bodies, charted or not.
+- Surveyors now scan only bodies in charted systems (`known_frontier()`, rebuilt when space is charted; same order, so output is **identical**): **80 s** total,
+  surveyors 74 s -> 25 s. Extractors (40 s) are the main cost again.
+- ms per month: 14 at 10 colonies, 52 at 51, 82 at 76, 178 at 101 (vs 126 at 120 colonies on 200 systems).
+- Outcome: 101 colonies in 58 systems, pop 5,750; only 267 of 1,000 systems charted and 2,754 bodies surveyed by year 100, so exploration
+  would carry on for centuries; survey fleet 2 -> ~40 ships, 22 sector discoveries; treasury 9.2M; Parts ~90 and Food ~33 (supply strained at this pace).
