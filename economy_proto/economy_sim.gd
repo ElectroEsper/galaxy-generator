@@ -45,6 +45,11 @@ const STATE_HABITAT_METAL := 30.0
 const STATE_HABITAT_PARTS := 12.0
 const STATE_RESERVE := 2.0           # only spend if the treasury holds this many times the cost
 var state_colonies : int = 0
+# State survey programme: each year the state orders surveys of unexplored planets, paid on completion.
+const SURVEY_ORDER_PRICE := 80.0     # paid per ordered first survey (instead of the flat contract fee)
+const SURVEY_BUDGET_SHARE := 0.05    # at most this share of the treasury is committed to new orders each year
+var survey_backlog : int = 0         # ordered surveys not yet done
+var surveys_ordered : int = 0
 var state_spent : float = 0.0     # share of a colony's job gap filled per tick (from colonies with idle people)
 var growth_enabled : bool = true
 
@@ -229,13 +234,28 @@ func _state_colonize() -> void:
 	best.settle(STATE_SETTLERS)
 	best.growth_enabled = growth_enabled
 	best.local_cash = STATE_GRANT
-	best.claims.clear()                  # the state buys out any surveyor claims as part of the cost
+	for g in best.claims:                # the state buys out the surveyors' claims at the going price
+		var cl : Dictionary = best.claims[g]
+		var fee : float = Corporation.CLAIM_PRICE * cl["value"]
+		cl["owner"].cash += fee; cl["owner"].claims_sold += 1
+		treasury -= fee; state_spent += fee
+	best.claims.clear()
 	markets.append(best)
 	settlements += 1
 	state_colonies += 1
 	treasury -= cost
 	state_spent += cost
 	shipment_made.emit(donor, best, Goods.FOOD, STATE_SETTLERS)
+
+## Order first surveys of unexplored planets, up to the yearly budget.
+func _order_surveys() -> void:
+	var unexplored : int = 0
+	for c in frontier:
+		if c.surveys == 0: unexplored += 1
+	var n : int = mini(unexplored - survey_backlog, int(treasury * SURVEY_BUDGET_SHARE / SURVEY_ORDER_PRICE))
+	if n > 0:
+		survey_backlog += n
+		surveys_ordered += n
 
 ## Zero-sum migration: people move from better-staffed colonies (pop / jobs-target above average)
 ## toward worse-staffed ones, so new outposts fill up from the core even when everyone is short of workers.
@@ -296,6 +316,7 @@ func _tick(t : int) -> void:
 		_migrate()
 		if state_colonization and t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1:
 			_state_colonize()
+			_order_surveys()
 		if t % 120 == 119 and not corps.any(func(k): return k.kind == Corporation.Kind.SURVEYOR):
 			corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # the state re-charters a survey service
 			treasury -= 600.0
@@ -402,7 +423,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction,state_colonies,state_spent,surveys_ordered,survey_backlog"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -452,4 +473,4 @@ func metrics_row() -> String:
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d,%d,%.0f,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild, state_colonies, state_spent, surveys_ordered, survey_backlog]

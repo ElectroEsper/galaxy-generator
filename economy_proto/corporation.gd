@@ -510,9 +510,15 @@ func _run_survey(markets : Array[ColonyMarket]) -> void:
 			break
 		survey_jobs.append({"target": t, "eta": SURVEY_MONTHS + _dist(t, world.nearest_settled(t), markets) / SHIP_TIME})
 	cash -= SURVEY_UPKEEP * (1 + ships)
-	if cash > SURVEY_SHIP_COST * 4.0 and unsold_claims() < MAX_UNSOLD_CLAIMS:
+	# Grow on speculation (few unsold finds) or on paid work (a backlog of state orders bigger than the fleet can clear in a year).
+	var ordered : int = world.survey_backlog if world != null else 0
+	var per_ship_year : float = 12.0 / (SURVEY_MONTHS + 1.0)
+	if cash > SURVEY_SHIP_COST * 4.0 and (unsold_claims() < MAX_UNSOLD_CLAIMS or ordered > (1 + ships) * per_ship_year):
 		cash -= SURVEY_SHIP_COST
 		ships += 1
+	elif cash < SURVEY_SHIP_COST and ships > 0 and ordered == 0:
+		ships -= 1                       # sell a ship rather than go broke
+		cash += SURVEY_SHIP_COST * 0.5
 
 ## Surveyors can't see true richness: an unsurveyed planet is worth a flat prior, a surveyed one a little
 ## less each time (they can't tell how much is left). Value per month of ship time, nearest first.
@@ -536,8 +542,13 @@ func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
 
 func _complete_survey(t : ColonyMarket) -> void:
 	if t.surveys == 0:
-		cash += SURVEY_CONTRACT          # paid by the state treasury
-		if world != null: world.treasury -= SURVEY_CONTRACT
+		# Paid by the state: an ordered survey at the order price, otherwise the small standing contract fee.
+		var fee : float = SURVEY_CONTRACT
+		if world != null and world.survey_backlog > 0:
+			world.survey_backlog -= 1
+			fee = world.SURVEY_ORDER_PRICE
+		cash += fee
+		if world != null: world.treasury -= fee
 	t.surveys += 1
 	surveys_done += 1
 	for g in t.hidden_richness:

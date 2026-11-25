@@ -250,3 +250,12 @@ Almost identical to 100 planets: with the state, 50 colonies (vs 53), pop 2,430 
 Only 94 of 500 planets get surveyed in 50 years, the same ~2 a year as on the 100-planet map: survey capacity, not galaxy size, sets the pace.
 Surveyors stay at 1-2 ships because they stop buying ships while 6 finds are unsold, and claims sell slowly (the state's colonies void them without paying).
 Companies-only shows a population dip around year 24 (Parts shortage) that the state's colonies avoid.
+
+## State survey orders and paid claims
+- State colonies now pay the surveyors' claims at the going price (they used to void them).
+- Once a year the state orders first surveys of unexplored planets, committing up to 5% of the treasury, at 80 per survey (paid on completion, instead of the flat 20).
+  A Surveyor buys ships while the order backlog is bigger than its fleet can clear in a year, and sells ships when it runs short of cash with no orders left.
+Result, seed 7 (`fig17_survey_orders.png`, `run_500_surveys.csv`, `run_100_surveys.csv`):
+- 500 planets: all surveyed by year ~17 (was 94 by year 50); the fleet peaks at 50 ships, then sells down to 12. Claims sold 1 -> 111. Colonies 50 -> 64, pop 2,430 -> 2,700, Parts ~44 -> ~28.
+- 100 planets: map surveyed by year ~10; claims sold 1 -> 61; colonies 53 -> 54, pop 2,180 -> 2,390.
+Open: the survey boom may be too fast (5%/year of a growing treasury = 485 orders on the 500 map); on 100 planets facilities fall from ~275 (year 20) to ~150 (year 50) while population keeps rising - to investigate.
