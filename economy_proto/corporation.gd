@@ -456,8 +456,29 @@ func _advance_build(f : Facility) -> void:
 func ship_capacity() -> float:
 	return SHIP_CAPACITY * pow(CLASS_CAP_MULT, ship_class - 1)
 
+## route_ok answers are fixed for the month; this run asks for the same few pairs thousands of times, so memoize with an int key.
+var _route_memo : Dictionary = {}
+func _route_ok_memo(a : ColonyMarket, b : ColonyMarket) -> bool:
+	var key : int = a.get_instance_id() * 1000003 + b.get_instance_id()
+	if _route_memo.has(key):
+		return _route_memo[key]
+	var ok : bool = world.route_ok(empire, a, b)
+	_route_memo[key] = ok
+	return ok
+
+var _tariff_memo_d : Dictionary = {}
+func _tariff_memo(a : ColonyMarket, b : ColonyMarket) -> float:
+	var key : int = a.owner.id * 64 + b.owner.id
+	if _tariff_memo_d.has(key):
+		return _tariff_memo_d[key]
+	var t : float = world.tariff_rate(a, b)
+	_tariff_memo_d[key] = t
+	return t
+
 func _run_freight(markets : Array[ColonyMarket]) -> void:
 	last_moves = []
+	_route_memo.clear()
+	_tariff_memo_d.clear()
 	var budget : float = float(1 + ships) * SHIP_TIME   # fleet sailing time this tick; short lanes allow many deliveries per ship
 	var total_budget : float = budget
 	var cap : float = ship_capacity()
@@ -480,8 +501,8 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 			var src : ColonyMarket = null
 			for m in markets:
 				if m != dest and m.port_free() and m.stock[g] >= 8.0 and (src == null or m.stock[g] > src.stock[g]):
-					if world != null and not world.route_ok(empire, m, dest):
-						continue                     # closed: no treaty with an empire at either end or along the way
+					if world != null and not _route_ok_memo(m, dest):
+						continue                     # closed: no treaty with an empire at either end or along the way (checked last: only for a would-be pick)
 					src = m
 			if src == null:
 				continue
@@ -525,11 +546,11 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 					if a == b or not b.port_free():
 						continue
 					var m : float = b.price[g] - a.price[g] - SHIP_COST * _dist(a, b, markets)
-					if world != null and not world.route_ok(empire, a, b):
-						continue                      # closed: no treaty with an empire at either end or along the way
 					if a.owner != b.owner and world != null:
-						m -= world.tariff_rate(a, b) * b.price[g]   # customs paid to the destination's empire
+						m -= _tariff_memo(a, b) * b.price[g]   # customs paid to the destination's empire
 					if m > best_m:
+						if world != null and not _route_ok_memo(a, b):
+							continue                  # closed: no treaty at either end or along the way (checked only for a would-be pick)
 						best_m = m; best = [g, a, b]
 		if best_m <= 0.3:
 			break

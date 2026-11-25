@@ -569,11 +569,14 @@ func treaty(a : Empire, b : Empire, kind : String) -> bool:
 var _claimed : Array = []
 var _claimed_tick : int = -1
 var _route_cache : Dictionary = {}
+var _claimed_owner : Dictionary = {}     # system -> owner, as of the start of the month (territory is redrawn monthly)
 
 ## The empire whose territory covers this point (nearest claimed system within TERRITORY_RADIUS), or null.
 func owner_at(p : Vector2) -> Empire:
 	if _claimed_tick != tick_count:
 		_claimed = GalaxyColonies.systems.filter(func(s): return s.owner != null)
+		_claimed_owner.clear()
+		for s in _claimed: _claimed_owner[s] = s.owner
 		_claimed_tick = tick_count
 		_route_cache.clear()
 	var best : Empire = null
@@ -604,16 +607,44 @@ func route_ok(f : Empire, a : ColonyMarket, b : ColonyMarket) -> bool:
 				ok = false
 			ends.append(o)
 	if ok:
-		var dist : float = a.position.distance_to(b.position)
-		var n : int = int(dist / ROUTE_SAMPLE)
-		for i in range(1, n):
-			var z : Empire = owner_at(a.position.lerp(b.position, float(i) / float(n)))
+		# Whose territory each point along the line is in: the first *claimed* system in that point's precomputed
+		# nearest-first list (same rule as owner_at, without searching the galaxy every month).
+		for near in _route_geometry(a, b):
+			var z : Empire = null
+			for s in near:
+				if _claimed_owner.has(s):
+					z = _claimed_owner[s]; break
 			if z == null or z == f or ends.has(z):
 				continue
 			if not treaty(f, z, "passage"):
 				ok = false; break
 	_route_cache[key] = ok
 	return ok
+
+## Route geometry, computed once per pair of positions and kept forever (star systems never move): for each sample point
+## along the straight line, every star system within TERRITORY_RADIUS, nearest first (ties: later system first, matching
+## owner_at). Whose territory a point is in then only depends on which of those few systems are claimed this month.
+var _route_geo : Dictionary = {}
+func _route_geometry(a : ColonyMarket, b : ColonyMarket) -> Array:
+	var gk : Array = [a.position, b.position]
+	if _route_geo.has(gk):
+		return _route_geo[gk]
+	var pts : Array = []
+	var n : int = int(a.position.distance_to(b.position) / ROUTE_SAMPLE)
+	var systems : Array = GalaxyColonies.systems
+	for i in range(1, n):
+		var p : Vector2 = a.position.lerp(b.position, float(i) / float(n))
+		var near : Array = []
+		for si in systems.size():
+			var d : float = systems[si].position.distance_to(p)
+			if d <= TERRITORY_RADIUS:
+				near.append([d, -si, systems[si]])
+		if near.is_empty():
+			continue
+		near.sort()
+		pts.append(near.map(func(x): return x[2]))
+	_route_geo[gk] = pts
+	return pts
 
 ## Freight reports cross-border deliveries (value at the destination price) and the customs it paid.
 func record_trade(src : ColonyMarket, dest : ColonyMarket, value : float, customs : float) -> void:

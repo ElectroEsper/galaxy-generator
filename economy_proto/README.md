@@ -384,3 +384,13 @@ Result, 4 empires, 200 systems, 100 years (`fig21_diplomacy.png`, `scaling/empir
 refused a trade treaty 15 times over 25 years and keeps sending aid, then is accepted everywhere in years 58-62 once others need its Water;
 passage treaties let Empires 1 and 2 reach each other through Empire 4; Empires 1 and 4, with a 30-segment border, fall out twice (year 69: treaties
 cancelled; reconciled by aid in years 77-79; hostile again near year 97). One empire: output unchanged. Cost: 306 s (route checks), vs 207 s.
+
+## Route checks: precomputed geometry (identical output)
+Star systems never move, so for each pair of positions a route is checked between, the sample points along the line and, for each point, the star
+systems within territory range (nearest first) are computed once and kept (`_route_geometry`). The monthly check only asks which of those few systems are
+claimed (from the month's ownership snapshot, as before), instead of searching every claimed system at every point. Freight also memoizes route and
+customs answers within its monthly run and checks a route only for an option it would actually pick.
+4 empires, 200 systems, 100 years: 306 s -> 244 s, output identical (CSV, EMP, REL and EVENT lines); freight 155 s -> 85 s.
+The rest of freight's cost is structural: closed borders leave many of the cheapest-source/dearest-destination candidates unreachable, so the
+lane search scans more candidates per delivery. Note: reading ownership live (a system settled mid-month blocks routes at once) is slightly more
+correct but changes results after ~30 years; kept the monthly snapshot for now.
