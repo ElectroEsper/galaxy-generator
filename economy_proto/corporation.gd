@@ -117,7 +117,7 @@ func _register(f : Facility, sign : float) -> void:
 	if f.extracts():
 		f.colony.extraction[f.good] = f.colony.extraction.get(f.good, 0.0) + sign * f.throughput()
 
-func _site_room(c : ColonyMarket, g : int, recipe : bool = false) -> float:
+static func _site_room(c : ColonyMarket, g : int, recipe : bool = false) -> float:
 	if recipe:
 		return INF
 	return c.richness.get(g, 0.0) * EXTRACT_CAP_MULT - c.extraction.get(g, 0.0)
@@ -141,6 +141,54 @@ func dissolve() -> void:
 ## Regional totals are asked for thousands of times a tick, so they're cached: `use` only changes when markets tick
 ## (the sim clears the cache each tick), `capacity` entries are dropped whenever a facility is (un)registered.
 static var reg_cache : Dictionary = {}
+
+## Every new-facility and outpost option for a kind of corporation, best payback first (stable: ties keep scan order).
+static func _opportunity_board(markets : Array[ColonyMarket], k : Kind) -> Array:
+	var key : String = "board%d:%d" % [k, markets.size()]
+	if reg_cache.has(key):
+		return reg_cache[key]
+	var opts : Array = []
+	var as_recipe : bool = k == Kind.PRODUCER
+	for c in markets:
+		if c.facility_slots_free() <= 0:
+			continue
+		for g in Goods.ALL:
+			if (as_recipe and not Goods.RECIPES.has(g)) or (not as_recipe and not Goods.is_raw(g)):
+				continue
+			var q : float = 1.0 if as_recipe else c.richness.get(g, 0.0)
+			if q <= 0.0 or _site_room(c, g, as_recipe) < q:
+				continue
+			# Demand-pull: only build where regional use exceeds regional capacity.
+			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
+			if unmet < q * 0.5:
+				continue
+			# Local absorption: output beyond what this colony's market can use only sells at crashed prices.
+			var absorb : float = minf(1.0, (c.use[g] * HEADROOM + unmet * EXPORT_SHARE) / q)
+			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
+			var cost_n : float = CAPEX + _materials_cost(c, 1.0)
+			if m > 0.0:
+				opts.append({"pb": cost_n / m, "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
+	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
+	if k == Kind.EXTRACTOR and world != null:
+		for c in world.frontier_candidates():
+			if c.settled or not world.can_send_settlers(c):
+				continue
+			var near : ColonyMarket = world.nearest_settled(c)
+			for g in c.richness:
+				var q : float = c.richness[g]
+				var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
+				if unmet < q * 0.5:
+					continue
+				var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
+				var m : float = (near.price[g] - Goods.RAW_COST[g] - SHIP_COST * _dist(c, near, [])) * q * absorb - UPKEEP
+				var fee : float = CLAIM_PRICE * c.claims[g]["value"] if c.claims.has(g) else 0.0
+				var cost : float = CAPEX + OUTPOST_COST + fee + _materials_cost(near, 1.0, true)
+				if m > 0.0:
+					# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
+					opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
+	opts.sort_custom(func(x, y): return x["pb"] < y["pb"])
+	reg_cache[key] = opts
+	return opts
 
 static func _regional(markets : Array[ColonyMarket], field : String, g : int) -> float:
 	var key : String = "%s%d:%d" % [field, g, markets.size()]
@@ -202,7 +250,7 @@ func _run_facilities() -> void:
 	for f in facilities:
 		cash -= f.upkeep()
 
-func _unit_margin(c : ColonyMarket, g : int, recipe : bool = false) -> float:
+static func _unit_margin(c : ColonyMarket, g : int, recipe : bool = false) -> float:
 	if not recipe:
 		return c.price[g] - Goods.RAW_COST[g]
 	var r : Dictionary = Goods.RECIPES[g]
@@ -212,7 +260,7 @@ func _unit_margin(c : ColonyMarket, g : int, recipe : bool = false) -> float:
 	return m
 
 ## 0..1: how well-stocked this colony is with the inputs a recipe needs.
-func _input_availability(c : ColonyMarket, g : int, recipe : bool = false) -> float:
+static func _input_availability(c : ColonyMarket, g : int, recipe : bool = false) -> float:
 	if not recipe:
 		return 1.0
 	var a : float = 1.0
@@ -264,45 +312,19 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	var best_new_g : int = -1
 	var best_new_recipe : bool = false
 	var best_up : Facility = null
-	for c in markets:
-		for g in Goods.ALL:
-			var as_recipe : bool = kind == Kind.PRODUCER
-			if (as_recipe and not Goods.RECIPES.has(g)) or (not as_recipe and not Goods.is_raw(g)):
-				continue
-			if idle_share.get(g, 0.0) > IDLE_BLOCK:
-				continue
-			var q : float = 1.0 if as_recipe else c.richness.get(g, 0.0)
-			if q <= 0.0 or _site_room(c, g, as_recipe) < q:
-				continue
-			# Demand-pull: only build where regional use exceeds regional capacity.
-			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
-			if unmet < q * 0.5:
-				continue
-			# Local absorption: output beyond what this colony's market can use only sells at crashed prices.
-			var absorb : float = minf(1.0, (c.use[g] * HEADROOM + unmet * EXPORT_SHARE) / q)
-			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
-			var cost_n : float = CAPEX + _materials_cost(c, 1.0)
-			if c.facility_slots_free() > 0 and cash >= cost_n * 1.5 and m > 0.0 and cost_n / m < best_payback:
-				best_payback = cost_n / m; best_new_c = c; best_new_g = g; best_new_recipe = as_recipe
-	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
+	# New facilities and outposts: the options are the same for every corporation of a kind, so they're ranked once
+	# (the "opportunity board", rebuilt whenever capacity or markets change) and each corporation takes the best
+	# one it can afford that isn't a good its own plants are idling on.
 	var best_frontier : bool = false
-	if kind == Kind.EXTRACTOR and world != null:
-		for c in world.frontier_candidates():
-			if c.settled or not world.can_send_settlers(c):
-				continue
-			var near : ColonyMarket = world.nearest_settled(c)
-			for g in c.richness:
-				var q : float = c.richness[g]
-				var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
-				if unmet < q * 0.5:
-					continue
-				var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
-				var m : float = (near.price[g] - Goods.RAW_COST[g] - SHIP_COST * _dist(c, near, markets)) * q * absorb - UPKEEP
-				var cost : float = CAPEX + OUTPOST_COST + claim_fee(c, g) + _materials_cost(near, 1.0, true)
-				# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
-				var pb : float = cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK
-				if cash >= cost * 1.2 and m > 0.0 and pb < best_payback:
-					best_payback = pb; best_new_c = c; best_new_g = g; best_new_recipe = false; best_frontier = true
+	for o in _opportunity_board(markets, kind):
+		if o["pb"] >= best_payback:
+			break
+		if idle_share.get(o["g"], 0.0) > IDLE_BLOCK:
+			continue
+		if cash < o["cost"] * (1.2 if o["frontier"] else 1.5):
+			continue
+		best_payback = o["pb"]; best_new_c = o["c"]; best_new_g = o["g"]; best_new_recipe = o["recipe"]; best_frontier = o["frontier"]
+		break
 	for f in facilities:
 		if f.level >= MAX_LEVEL or f.building() or idle_share.get(f.good, 0.0) > IDLE_BLOCK:
 			continue
@@ -342,7 +364,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		if f.extracts(): best_new_c.extractor_count += 1
 
 ## Materials for a project at colony c, at today's local prices.
-func _materials_cost(c : ColonyMarket, scale : float, outpost : bool = false) -> float:
+static func _materials_cost(c : ColonyMarket, scale : float, outpost : bool = false) -> float:
 	var metal : float = BUILD_METAL * scale + (OUTPOST_METAL if outpost else 0.0)
 	var parts : float = BUILD_PARTS * scale + (OUTPOST_PARTS if outpost else 0.0)
 	return metal * c.price[Goods.METAL] + parts * c.price[Goods.PARTS]
@@ -477,7 +499,7 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 	elif utilisation < 0.25 and ships > 0:
 		ships -= 1
 
-func _dist(a : ColonyMarket, b : ColonyMarket, markets : Array[ColonyMarket]) -> float:
+static func _dist(a : ColonyMarket, b : ColonyMarket, markets : Array[ColonyMarket]) -> float:
 	# Within one star system: a short hop. Between systems: map-space distance (px) -> lane cost units.
 	if a.system != null and a.system == b.system:
 		return INTRA_SYSTEM_DIST

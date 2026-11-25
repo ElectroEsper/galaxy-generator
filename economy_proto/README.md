@@ -297,3 +297,13 @@ and cumulative time per tick phase. Runs: 25 / 50 / 100 / 200 systems (290 / 547
 - **Next:** the evaluation is still repeated per corporation although it's the same for all of them except cash. A shared per-tick "opportunity board"
   (rank options once, corporations take the best they can afford) should remove most of the rest, and suits the idle-Extractor problem too.
 - Exploration at 100-200 systems over 50 years is still one rising boom (fleet 1 -> 30-35 ships, 9-14 sector discoveries); waves would need a longer run.
+
+## Opportunity board (shared evaluation)
+New-facility and outpost options are the same for every corporation of a kind, so they're now ranked once into an "opportunity board" (per kind, rebuilt whenever
+capacity, claims or the set of colonies change; cached with the regional sums). Each corporation walks the board best-payback-first and takes the first option it can
+afford that isn't a good its own plants are idling on, then compares it with its own upgrade options. The scan helpers became static functions.
+- Output is **identical** to the original uncached run (full CSV diff). 100 systems, 50 years: 106 s -> 27 s (caches) -> **9 s** (board); ~31 ms per month at 53 colonies.
+- 200 systems, 100 years: 69 s total; ms per month grows roughly linearly with colonies now (~1 ms per colony: 4 ms at 10, 58 at 63, 126 at 120).
+  Remaining time: Extractors 39 s (own upgrades + facility runs), Surveyors 19 s (target scan over every body), Freight 4 s, Producers 3 s.
+- Exploration on that run: survey fleet 2 -> ~37 ships by year 70, then 11 by year 100; 31 sector discoveries spread over years 11-97, so it is one long boom
+  rather than waves (discoveries keep coming as each new sector is surveyed fast). Waves would need discoveries to wait for a sector to be finished, or rarer events.
