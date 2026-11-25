@@ -145,11 +145,8 @@ static var reg_cache : Dictionary = {}
 static var sub_prof : Dictionary = {}   # profiling: operate vs review time per kind (usec)
 
 ## Every new-facility and outpost option for a kind of corporation, best payback first (stable: ties keep scan order).
-## The opportunity board, in two parts that the corporations walk together (merged by payback, ties to the market part,
-## exactly as one combined list would order them): ordinary build options, shared by every corporation of a kind, and
-## outpost options, which depend on the empire's own surveys and territory.
-static func _market_board(markets : Array[ColonyMarket], k : Kind) -> Array:
-	var key : String = "boardm%d:%d" % [k, markets.size()]
+static func _opportunity_board(markets : Array[ColonyMarket], k : Kind, e = null) -> Array:
+	var key : String = "board%d:%d:%d" % [k, markets.size(), e.id if e != null else -1]
 	if reg_cache.has(key):
 		return reg_cache[key]
 	var tb : int = Time.get_ticks_usec()
@@ -175,25 +172,6 @@ static func _market_board(markets : Array[ColonyMarket], k : Kind) -> Array:
 			var cost_n : float = CAPEX + _materials_cost(c, 1.0)
 			if m > 0.0:
 				opts.append({"pb": cost_n / m, "i": opts.size(), "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
-	# Native sort on [payback, scan index] pairs (fast, same order as the explicit tie-break), then reorder the options.
-	var keys : Array = []
-	for o in opts: keys.append([o["pb"], o["i"]])
-	keys.sort()
-	var sorted_opts : Array = []
-	for kk in keys: sorted_opts.append(opts[kk[1]])
-	opts = sorted_opts
-	reg_cache[key] = opts
-	sub_prof["board_build_time"] = sub_prof.get("board_build_time", 0) + (Time.get_ticks_usec() - tb)
-	return opts
-
-static func _outpost_board(markets : Array[ColonyMarket], e) -> Array:
-	var key : String = "boardo%d:%d" % [e.id, markets.size()]
-	var k : Kind = Kind.EXTRACTOR
-	if reg_cache.has(key):
-		return reg_cache[key]
-	var tb : int = Time.get_ticks_usec()
-	sub_prof["board_builds"] = sub_prof.get("board_builds", 0) + 1000   # shows as a count in the PROFILE line
-	var opts : Array = []
 	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
 	# The per-outpost numbers that only change monthly come precomputed from the sim; demand and claim fees stay live.
 	if k == Kind.EXTRACTOR and world != null and e != null:
@@ -355,15 +333,7 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	# (the "opportunity board", rebuilt whenever capacity or markets change) and each corporation takes the best
 	# one it can afford that isn't a good its own plants are idling on.
 	var best_frontier : bool = false
-	var mb : Array = _market_board(markets, kind)
-	var ob : Array = _outpost_board(markets, empire) if (kind == Kind.EXTRACTOR and world != null and empire != null) else []
-	var mi : int = 0; var oi : int = 0
-	while mi < mb.size() or oi < ob.size():
-		var o : Dictionary
-		if oi >= ob.size() or (mi < mb.size() and mb[mi]["pb"] <= ob[oi]["pb"]):
-			o = mb[mi]; mi += 1
-		else:
-			o = ob[oi]; oi += 1
+	for o in _opportunity_board(markets, kind, empire):
 		if o["pb"] >= best_payback:
 			break
 		if idle_share.get(o["g"], 0.0) > IDLE_BLOCK:
