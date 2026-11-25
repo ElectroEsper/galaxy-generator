@@ -186,7 +186,7 @@ func reveal(e, g : int, amount : float) -> float:
 	info["rich"][g] = nv
 	info["found"][g] = nv / maxf(r, 0.001)
 	if settled and owner == e:
-		Corporation.reg_cache.clear()
+		Corporation.invalidate_all()
 		capacity[g] += (nv - old) * 0.25      # the local business starts working the new find
 	return nv - old
 
@@ -199,6 +199,6 @@ func settle(settlers : float, e = null) -> void:
 		richness = intel_for(e)["rich"]
 		if system != null and system.owner == null:
 			system.owner = e
-	Corporation.reg_cache.clear()
+	Corporation.invalidate_all()
 	for g in richness:
 		capacity[g] += local_output(g)

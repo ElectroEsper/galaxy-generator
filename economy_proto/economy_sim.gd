@@ -226,12 +226,13 @@ func _empire_colonies(e : Empire) -> Array:
 
 func _clear_empire_caches() -> void:
 	for e in empires: e.clear_caches()
-	Corporation.reg_cache.clear()
+	Corporation.invalidate_all()
 
 ## Outpost options' fixed parts for this month, for empire e: [body, good, richness, net unit margin at e's nearest colony
 ## after shipping, cost without the claim fee]. Rebuilt with the candidate list (each month, or when a colony is founded).
 func outpost_base(e : Empire) -> Array:
 	if not e.ob_valid:
+		var tb : int = Time.get_ticks_usec()
 		e.ob_valid = true
 		e.ob_cache = []
 		for c in frontier_candidates(e):
@@ -243,6 +244,8 @@ func outpost_base(e : Empire) -> Array:
 			for g in rich:
 				var unit : float = near.price[g] - Goods.RAW_COST[g] - Corporation.SHIP_COST * Corporation._dist(c, near, [])
 				e.ob_cache.append([c, g, rich[g], unit, Corporation.CAPEX + Corporation.OUTPOST_COST + mats])
+		Corporation.sub_prof["outpost_base_time"] = Corporation.sub_prof.get("outpost_base_time", 0) + (Time.get_ticks_usec() - tb)
+		Corporation.sub_prof["outpost_base_builds"] = Corporation.sub_prof.get("outpost_base_builds", 0) + 1000
 	return e.ob_cache
 
 ## Unsettled bodies with deposits known to e, outside other empires' territory (outpost candidates), computed once per tick.
@@ -255,8 +258,9 @@ func frontier_candidates(e : Empire) -> Array:
 ## Closest colony of empire e (where its supplies, settlers and survey ships come from). Cached per tick.
 func nearest_settled(c : ColonyMarket, e : Empire = null) -> ColonyMarket:
 	if e == null: e = empires[0]
-	if e.near_cache.has(c):
-		return e.near_cache[c]
+	var ck = c.system if c.system != null else c     # bodies of one system share a map position
+	if e.near_cache.has(ck):
+		return e.near_cache[ck]
 	var best : ColonyMarket = e.capital
 	var bd : float = INF
 	for m in markets:
@@ -265,12 +269,13 @@ func nearest_settled(c : ColonyMarket, e : Empire = null) -> ColonyMarket:
 		var d : float = m.position.distance_to(c.position)
 		if d < bd:
 			bd = d; best = m
-	e.near_cache[c] = best
+	e.near_cache[ck] = best
 	return best
 
 func _settler_donor(c : ColonyMarket, e : Empire) -> ColonyMarket:
-	if e.donor_cache.has(c):
-		return e.donor_cache[c]
+	var ck = c.system if c.system != null else c     # bodies of one system share a map position
+	if e.donor_cache.has(ck):
+		return e.donor_cache[ck]
 	# Colonization companies recruit volunteers from any of the empire's colonies big enough to spare them
 	# (the home colony's own labour gap grows a little), preferring well-staffed colonies close to the target.
 	var best : ColonyMarket = null
@@ -281,11 +286,15 @@ func _settler_donor(c : ColonyMarket, e : Empire) -> ColonyMarket:
 		var v : float = (m.pop / maxf(m.target_pop(), 1.0)) * m.pop / (1.0 + m.position.distance_to(c.position) / 200.0)
 		if v > bv:
 			bv = v; best = m
-	e.donor_cache[c] = best
+	e.donor_cache[ck] = best
 	return best
 
+## Settlers can be sent anywhere as long as one of the empire's colonies is big enough (the donor's identity only matters
+## when an outpost is actually founded). Checked once a month.
 func can_send_settlers(c : ColonyMarket, e : Empire) -> bool:
-	return _settler_donor(c, e) != null
+	if not e.donor_cache.has("any"):
+		e.donor_cache["any"] = markets.any(func(m): return m.owner == e and m.pop >= SETTLER_MIN_POP)
+	return e.donor_cache["any"]
 
 func _on_settled(c : ColonyMarket, e : Empire) -> void:
 	_clear_empire_caches()
@@ -498,7 +507,7 @@ func _tick(t : int) -> void:
 					corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0, e))   # the state re-charters a survey service
 					e.treasury -= 600.0
 	t0 = Time.get_ticks_usec()
-	Corporation.reg_cache.clear()
+	Corporation.invalidate_all()
 	for c in markets.duplicate():
 		c.tick()
 		if t > 20 and corps.size() < max_corps:
