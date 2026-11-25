@@ -18,6 +18,7 @@ var tick_count : int = 0
 @export var use_galaxy : bool = false   # true: colonies come from generated stars/planets
 @export var galaxy_stars : int = 120
 @export var galaxy_colonies : int = 10
+@export var galaxy_systems : int = 0      # >0: generate this many star systems (all bodies) instead of a planet count
 @export var all_planets : bool = false     # true: every generated planet is a colony (galaxy_colonies = how many)
 var max_corps : int = 12
 ## Colonization mode: start from one Capital World; every other planet is unsettled frontier with unknown deposits.
@@ -86,7 +87,7 @@ func date_label() -> String:
 func setup() -> void:
 	seed(rng_seed)
 	if use_galaxy:
-		markets = GalaxyColonies.generate_all(galaxy_colonies) if all_planets else GalaxyColonies.generate(galaxy_stars, galaxy_colonies)
+		markets = GalaxyColonies.generate_all(galaxy_colonies, galaxy_systems) if all_planets else GalaxyColonies.generate(galaxy_stars, galaxy_colonies)
 	else:
 		_setup_handmade()
 	for c in markets:
@@ -340,38 +341,56 @@ func step() -> void:
 	_tick(tick_count)
 	tick_count += 1
 
+## Profiling: microseconds spent per phase of the tick (cumulative).
+var prof : Dictionary = {}
+func _p(phase : String, t0 : int) -> int:
+	var now : int = Time.get_ticks_usec()
+	prof[phase] = prof.get(phase, 0) + (now - t0)
+	return now
+
 func _tick(t : int) -> void:
+	var t0 : int = Time.get_ticks_usec()
 	for c in markets:
 		c.jobs = 0.0
 		c.port_used = 0
 	for k in corps:
 		for f in k.facilities:
 			f.colony.jobs += 1.0
+	t0 = _p("jobs_reset", t0)
 	for k in corps:
 		var before : float = k.cash
+		var tk : int = Time.get_ticks_usec()
 		k.run(markets)
+		_p("corp_" + Corporation.Kind.find_key(k.kind).to_lower(), tk)
 		if taxes:
 			var tax : float = maxf(0.0, k.cash - before) * PROFIT_TAX + maxf(0.0, k.cash - WEALTH_FREE) * WEALTH_TAX
 			k.cash -= tax; treasury += tax; tax_collected += tax
 		for m in k.last_moves:
 			shipment_made.emit(m["from"], m["to"], m["good"], m["qty"])
+	t0 = Time.get_ticks_usec()
 	if colonize:
 		_migrate()
+		t0 = _p("migration", t0)
 		_maybe_discover_sector()
+		t0 = _p("sector_events", t0)
 		if state_colonization and t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1:
 			_state_colonize()
 			_order_surveys()
+		t0 = _p("state", t0)
 		if t % 120 == 119 and not corps.any(func(k): return k.kind == Corporation.Kind.SURVEYOR):
 			corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # the state re-charters a survey service
 			treasury -= 600.0
+	t0 = Time.get_ticks_usec()
 	for c in markets.duplicate():
 		c.tick()
 		if t > 20 and corps.size() < max_corps:
 			_try_emergence(c)
+	t0 = _p("markets_emergence", t0)
 	for k in corps:
 		if k.is_dead():
 			k.dissolve()
 	corps = corps.filter(func(k): return not k.is_dead())
+	_p("dissolution", t0)
 
 ## Two emergence paths, both local to a colony:
 ##  1. Promotion: the informal local business has banked enough profit to incorporate.

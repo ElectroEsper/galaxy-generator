@@ -60,21 +60,24 @@ static func _to_colony(p : Planet, star : Star, idx : int) -> ColonyMarket:
 
 ## Every planet (rocky, giant, belt) becomes a colony, until `planet_count` is reached.
 ## Planets of one star sit close together on the map; giants/belts get small population ceilings.
-static func generate_all(planet_count : int) -> Array[ColonyMarket]:
+## star_count > 0: generate exactly that many star systems (all bodies), on a map scaled so star density stays
+## the same as the ~46-system default (a bigger galaxy is bigger, not denser).
+static func generate_all(planet_count : int, star_count : int = 0) -> Array[ColonyMarket]:
 	var out : Array[ColonyMarket] = []
 	var star_idx : int = 0
 	systems = []
-	while out.size() < planet_count:
+	var scale : float = sqrt(star_count / 46.0) if star_count > 0 else 1.0
+	while (star_count > 0 and star_idx < star_count) or (star_count <= 0 and out.size() < planet_count):
 		var star := Star.new()
 		star.init_solar_system()
 		var a : float = randf() * TAU
 		star.map_position = Vector2(cos(a), sin(a)) * sqrt(randf())
-		var sys := SystemNode.new("S%d" % star_idx, VIEW_CENTER + star.map_position * VIEW_RADIUS)
+		var sys := SystemNode.new("S%d" % star_idx, VIEW_CENTER + star.map_position * VIEW_RADIUS * scale)
 		sys.star_class = AstronomyData.StarClass.find_key(star.star_class)
 		if not star.orbit_slot.is_empty():
 			systems.append(sys)
 		for p in star.orbit_slot:
-			if out.size() >= planet_count:
+			if star_count <= 0 and out.size() >= planet_count:
 				break
 			var c : ColonyMarket = _to_colony(p, star, out.size())
 			c.site_score = _score(p, star) + c.max_pop / 200.0
