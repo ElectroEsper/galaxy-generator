@@ -171,3 +171,10 @@ Real levers: more Ore (mining slots/colonies, richer or more numerous Ore sites,
 Tick 400 diagnostic: Parts stockouts 63 -> 31 colonies, Parts price 84 -> 66, Food stockouts 57 -> 47, Metal stockouts 4.
 1200-tick run (`run_salvage_1200.csv`) vs the half-slot run: pop 11,181 -> 11,708, 100/100 colonies with jobs, Parts ~74 -> ~62, Food ~63 -> ~61, Ore/Metal/Water about the same (~32/38/35).
 Everything still reads "in shortage" by the metric (price > 2x base for Food+Parts), but the gap is closing slowly; the remaining Ore wall (46 Ore sites, workforce slots) is the structural limit.
+
+## Asteroid belts hold the Ore; ports were the choke (`diag_belts.gd`)
+Belts are already colonies with Ore, but at tick 400 the 18 belts (990 of the 1,600 Ore site capacity) extracted only 136 (14%) and sat on **400-2,400 unsold Ore each at price 1-5**, so their mines idled while Metal producers elsewhere starved.
+The Freight fleet was the bottleneck, not richness: ships at class 4 (48 units) ran 15% full with 21% of sailing time unused, because small belt colonies (pop ~65) had only 2 port slots each.
+`PORT_BASE` 2 -> 4. Tick 400: Ore extracted 590 -> 853 (belts 136 -> 280), Food stockouts 47 -> 37. 1200 ticks (`run_ports4_1200.csv`), vs previous (salvage) run:
+pop 11,708 -> 13,575, Ore 32 -> 21, Metal 38 -> 26, Parts 62 -> 55, Food 61 -> 45, Water 35 -> 12, fleet 58 -> 76 ships, all 100 colonies with jobs.
+Remaining oddity: class-4 hulls are mostly empty (fill 0.15-0.3) because the class refit happens in the first ~40 ticks, before real flows exist; gate refits on hold fill.

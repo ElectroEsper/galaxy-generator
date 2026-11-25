@@ -127,7 +127,7 @@ func tick() -> void:
 	shortfall_signal = 0.9 * shortfall_signal + 0.1 * premium
 
 ## Port congestion: a colony can load/unload only so many deliveries per tick, whoever's ships they are.
-const PORT_BASE := 2
+const PORT_BASE := 4
 const PORT_POP_PER_SLOT := 100.0
 
 func port_slots() -> int:
