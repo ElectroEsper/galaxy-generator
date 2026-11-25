@@ -252,10 +252,12 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		for req in dest.requests:
 			if budget <= 0.0:
 				break
+			if not dest.port_free():
+				break
 			var g : int = req["good"]
 			var src : ColonyMarket = null
 			for m in markets:
-				if m != dest and m.stock[g] >= 8.0 and (src == null or m.stock[g] > src.stock[g]):
+				if m != dest and m.port_free() and m.stock[g] >= 8.0 and (src == null or m.stock[g] > src.stock[g]):
 					src = m
 			if src == null:
 				continue
@@ -264,6 +266,7 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 				continue
 			var fee : float = SHIP_COST * _dist(src, dest, markets) * q
 			budget -= _dist(src, dest, markets) + LOAD_TIME
+			src.port_used += 1; dest.port_used += 1
 			src.stock[g] -= q; dest.stock[g] += q
 			req["qty"] -= q
 			cash += q * (dest.price[g] - src.price[g]) + fee
@@ -286,10 +289,10 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		var best : Array = []
 		for g in Goods.ALL:
 			for a in sources[g]:
-				if a.stock[g] < 6.0:
+				if a.stock[g] < 6.0 or not a.port_free():
 					continue
 				for b in dests[g]:
-					if a == b:
+					if a == b or not b.port_free():
 						continue
 					var m : float = b.price[g] - a.price[g] - SHIP_COST * _dist(a, b, markets)
 					if m > best_m:
@@ -303,6 +306,7 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		var trip : float = _dist(a, b, markets) + LOAD_TIME
 		budget -= trip
 		last_rate = q * best_m / trip
+		a.port_used += 1; b.port_used += 1
 		a.stock[g] -= q; b.stock[g] += q
 		cash += q * best_m
 		moved += q
