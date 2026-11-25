@@ -114,6 +114,7 @@ func seed_facility(c : ColonyMarket, g : int, recipe : bool = false) -> void:
 ## Keep colony capacity / extraction bookkeeping in sync with a facility's throughput.
 func _register(f : Facility, sign : float) -> void:
 	reg_cache.clear()
+	invalidate_good(f.good)
 	f.colony.capacity[f.good] += sign * f.throughput()
 	if f.extracts():
 		f.colony.extraction[f.good] = f.colony.extraction.get(f.good, 0.0) + sign * f.throughput()
@@ -142,6 +143,51 @@ func dissolve() -> void:
 ## Regional totals are asked for thousands of times a tick, so they're cached: `use` only changes when markets tick
 ## (the sim clears the cache each tick), `capacity` entries are dropped whenever a facility is (un)registered.
 static var reg_cache : Dictionary = {}
+## Outpost options per (empire, good), cached separately: they depend only on that good's regional supply/demand,
+## the claims on that good and the month's precomputed outpost values, so a new facility only invalidates its own good.
+static var out_cache : Dictionary = {}
+
+static func invalidate_all() -> void:
+	reg_cache.clear()
+	out_cache.clear()
+
+static func invalidate_good(g : int) -> void:
+	for key in out_cache.keys():
+		if key.get_slice(":", 1) == str(g):
+			out_cache.erase(key)
+
+static func _outpost_list(markets : Array[ColonyMarket], e, g : int) -> Array:
+	var key : String = "%d:%d:%d" % [e.id, g, markets.size()]
+	if out_cache.has(key):
+		return out_cache[key]
+	var opts : Array = []
+	var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
+	var base : Array = world.outpost_base(e)
+	for ri in base.size():
+		var row : Array = base[ri]
+		if row[1] != g:
+			continue
+		var c : ColonyMarket = row[0]
+		var q : float = row[2]
+		if unmet < q * 0.5:
+			continue
+		var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
+		var m : float = row[3] * q * absorb - UPKEEP
+		var cl : Dictionary = c.intel_for(e)["claims"]
+		var fee : float = CLAIM_PRICE * cl[g]["value"] if cl.has(g) else 0.0
+		var cost : float = row[4] + fee
+		if m > 0.0:
+			# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON);
+			# index after every market option, in outpost order, so the merged walk orders exactly like one combined list
+			opts.append([cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, 1000000 + ri, {"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost}])
+	opts.sort()
+	var out : Array = []
+	for o in opts:
+		o[2]["i"] = o[1]
+		out.append(o[2])
+	out_cache[key] = out
+	return out
+
 static var sub_prof : Dictionary = {}   # profiling: operate vs review time per kind (usec)
 
 ## Every new-facility and outpost option for a kind of corporation, best payback first (stable: ties keep scan order).
@@ -172,24 +218,6 @@ static func _opportunity_board(markets : Array[ColonyMarket], k : Kind, e = null
 			var cost_n : float = CAPEX + _materials_cost(c, 1.0)
 			if m > 0.0:
 				opts.append({"pb": cost_n / m, "i": opts.size(), "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
-	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
-	# The per-outpost numbers that only change monthly come precomputed from the sim; demand and claim fees stay live.
-	if k == Kind.EXTRACTOR and world != null and e != null:
-		for row in world.outpost_base(e):
-			var c : ColonyMarket = row[0]
-			var g : int = row[1]
-			var q : float = row[2]
-			var unmet : float = _regional(markets, "use", g) * HEADROOM - _regional(markets, "capacity", g)
-			if unmet < q * 0.5:
-				continue
-			var absorb : float = minf(1.0, unmet * EXPORT_SHARE / q)
-			var m : float = row[3] * q * absorb - UPKEEP
-			var cl : Dictionary = c.intel_for(e)["claims"]
-			var fee : float = CLAIM_PRICE * cl[g]["value"] if cl.has(g) else 0.0
-			var cost : float = row[4] + fee
-			if m > 0.0:
-				# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
-				opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "i": opts.size(), "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
 	# Native sort on [payback, scan index] pairs (fast, same order as the explicit tie-break), then reorder the options.
 	var keys : Array = []
 	for o in opts: keys.append([o["pb"], o["i"]])
@@ -333,7 +361,25 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	# (the "opportunity board", rebuilt whenever capacity or markets change) and each corporation takes the best
 	# one it can afford that isn't a good its own plants are idling on.
 	var best_frontier : bool = false
-	for o in _opportunity_board(markets, kind, empire):
+	var lists : Array = [_opportunity_board(markets, kind, empire)]
+	if kind == Kind.EXTRACTOR and world != null and empire != null:
+		for g in Goods.ALL:
+			if Goods.is_raw(g): lists.append(_outpost_list(markets, empire, g))
+	var ptr : Array = []
+	ptr.resize(lists.size()); ptr.fill(0)
+	while true:
+		var bi : int = -1
+		for li in lists.size():
+			if ptr[li] >= lists[li].size(): continue
+			var cand : Dictionary = lists[li][ptr[li]]
+			if bi < 0:
+				bi = li; continue
+			var cur : Dictionary = lists[bi][ptr[bi]]
+			if cand["pb"] < cur["pb"] or (cand["pb"] == cur["pb"] and cand["i"] < cur["i"]): bi = li
+		if bi < 0:
+			break
+		var o : Dictionary = lists[bi][ptr[bi]]
+		ptr[bi] += 1
 		if o["pb"] >= best_payback:
 			break
 		if idle_share.get(o["g"], 0.0) > IDLE_BLOCK:
@@ -667,3 +713,4 @@ func _complete_survey(t : ColonyMarket) -> void:
 			var cl : Dictionary = info["claims"]
 			var prev : float = cl[g]["value"] if cl.has(g) and cl[g]["owner"] == self else 0.0
 			cl[g] = {"owner": self, "value": prev + inc}
+			invalidate_good(g)

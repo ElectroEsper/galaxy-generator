@@ -348,3 +348,13 @@ Empire 2, hemmed in by its neighbours, holds 20 systems, 95 colonies and stalls 
 Cost: 390 s (vs ~70 s for one empire on the same map): extractors 234 s, mostly re-scoring each empire's thousands of outpost options whenever any facility registers.
 Tried splitting the board into a shared market part and per-empire outposts: no speed-up (the outposts are the volume) and slightly different results
 (the market options were evaluated at a different moment in the month), so it was reverted.
+
+## Multi-empire speed-ups (identical output)
+- Outpost options are cached per (empire, good) and re-scored only when that good's supply changes (a facility of that good registers) or a claim on it
+  changes; ordinary build options are still rebuilt whenever any facility registers (they read stock levels that move during the month). The corporations walk
+  the lists merged by (payback, scan index), exactly as one combined list. On its own: no gain (the scoring wasn't the cost).
+- The real cost was the monthly outpost-candidate rebuild: for every surveyed deposit it searched all the empire's colonies for a settler source and for the
+  nearest colony. Now "can send settlers" is one check a month (any colony of 100+ people; the donor is only picked when an outpost is founded), and
+  nearest-colony / donor lookups are cached per star system (its bodies share one map position).
+- 4 empires, 200 systems, 100 years: 402 s -> **207 s**, output identical (full CSV + EMP diff); 1 empire, 100 systems, 50 years: 10.3 s -> 8.0 s, identical.
+  Remaining: extractors 94 s (outpost base 35 s, ordinary board 33 s), freight 45 s, surveyors 27 s, producers 23 s.
