@@ -70,6 +70,7 @@ static func generate_all(planet_count : int) -> Array[ColonyMarket]:
 			if out.size() >= planet_count:
 				break
 			var c : ColonyMarket = _to_colony(p, star, out.size())
+			c.site_score = _score(p, star) + c.max_pop / 200.0
 			c.name = "S%d.%d" % [star_idx, out.size()]
 			c.position += Vector2.from_angle(randf() * TAU) * randf_range(6.0, 18.0)
 			if p.type != Planet.BaseType.NORMAL:

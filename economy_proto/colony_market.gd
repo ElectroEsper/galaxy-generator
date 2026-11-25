@@ -26,6 +26,15 @@ var local_cash : float = 0.0       # profit accrued by the colony's informal loc
 var planet_label : String = ""       # planet class, shown by the view
 var position : Vector2 = Vector2.ZERO  # galaxy-map position (used by the visual layer)
 var shortfall_signal : float = 0.0 # smoothed price premium of pop goods -> corp emergence
+# --- Colonization & surveying ---
+## When true, the sim moves people between colonies (zero-sum migration) instead of colonies conjuring migrants.
+static var external_migration : bool = false
+var settled : bool = true
+var site_score : float = 0.0          # how attractive the planet looks as a home (picks the Capital World)
+var hidden_richness : Dictionary = {} # true richness; `richness` holds only what surveys have revealed
+var found_frac : Dictionary = {}      # revealed share of each good's true richness
+var surveys : int = 0
+var claims : Dictionary = {}          # good -> {"owner": Corporation, "value": richness revealed}; sold to the first extractor
 
 func _init(n : String, p : float, rich : Dictionary, ceiling : float = 400.0) -> void:
 	name = n; pop = p; richness = rich; max_pop = ceiling
@@ -107,7 +116,8 @@ func tick() -> void:
 		var need : float = maxf(pop_demand(Goods.FOOD), 0.001)
 		var fed : float = clampf(stock[Goods.FOOD] / (need * 3.0), 0.0, 1.0)
 		pop += pop * BIRTH_RATE * fed * (1.0 - pop / max_pop) - pop * DEATH_RATE * (1.0 - fed)
-		pop += maxf(0.0, target_pop() - pop) * 0.02
+		if not external_migration:
+			pop += maxf(0.0, target_pop() - pop) * 0.02
 		pop = clampf(pop, 5.0, max_pop)
 	else:
 		pop += (target_pop() - pop) * 0.02
@@ -136,3 +146,32 @@ func port_slots() -> int:
 
 func port_free() -> bool:
 	return port_used < port_slots()
+
+## Turn a generated colony into an unsettled frontier planet: nobody lives there and its deposits are unknown.
+func make_frontier() -> void:
+	hidden_richness = richness.duplicate()
+	for g in richness:
+		capacity[g] -= local_output(g)
+	richness = {}
+	settled = false
+	pop = 0.0
+
+## A survey revealed `amount` more of good g (capped by the true richness). Returns how much was new.
+func reveal(g : int, amount : float) -> float:
+	var r : float = hidden_richness.get(g, 0.0)
+	var old : float = richness.get(g, 0.0)
+	var nv : float = minf(r, old + amount)
+	if nv <= old + 0.001:
+		return 0.0
+	richness[g] = nv
+	found_frac[g] = nv / maxf(r, 0.001)
+	if settled:
+		capacity[g] += (nv - old) * 0.25      # the local business starts working the new find
+	return nv - old
+
+## First settlers arrive.
+func settle(settlers : float) -> void:
+	settled = true
+	pop = settlers
+	for g in richness:
+		capacity[g] += local_output(g)

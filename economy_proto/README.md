@@ -185,3 +185,23 @@ Remaining oddity: class-4 hulls are mostly empty (fill 0.15-0.3) because the cla
 - 6,000 ticks = 500 years; 600 ticks = 50 years.
 Effect (`run_birth003_1200.csv` vs `run_ports4_1200.csv`): slower early growth (pop at tick 100: 5,500 vs 6,200; tick 300: 8,500 vs 9,800), converging by tick ~1000 (12,400 vs 13,600 at 1,200; all 100 colonies with jobs, Parts ~58, Food ~55).
 Use this scale when picking new constants (facility build times, ship speed, tech/upgrade durations).
+
+## Colonization from a Capital World, Surveyors and outposts (`colonize = true`)
+Run: `run_headless_csv.gd -- growth=1 ticks=600 colonize=1` (the 2D view now starts in this mode). The old all-planets-settled mode is unchanged (`colonize` off).
+- **Capital World**: the best-scoring planet that can feed and equip itself (needs Ore, plus Food or Water). It starts with 600 people (ceiling 3,000), an established
+  economy sized to them (Extractor + Producer founding firms, shelves at normal cover) and fully known deposits. Its home star system is charted from the start.
+  A capital without Ore can't run Metal/Parts; 1,500 people need ~150 Ore/month, far more than one planet's deposit (~16), so the capital must colonize for Ore.
+- **Frontier**: every other planet is unsettled, pop 0, deposits hidden (`hidden_richness`). `richness` now means *known* richness.
+- **Surveyor** corporation (`Kind.SURVEYOR`, one state-chartered at start, re-chartered if it goes bankrupt): survey ships spend 6 months on site plus travel.
+  A survey reveals part of each deposit's true richness, decaying as more is found and more slowly on rich worlds (resurveys keep finding more on rich planets).
+  Surveyors can't see true richness: unsurveyed planets have a flat prior, resurveys are worth less each time; they pick the best value per month of ship time.
+  Income: a state contract per first survey (20) and **claims**: each find becomes a claim the first extractor to work that deposit must buy (150 per richness unit).
+  They buy more ships only while fewer than 6 finds are unsold.
+- **Outposts**: an Extractor can found an outpost on a surveyed, unsettled planet (cost 160 + facility + claim), judged on the nearest colony's price minus shipping.
+  20 settlers are recruited from a colony of 100+ people (well-staffed and close preferred).
+- **Migration is now zero-sum** in this mode: people move from better-staffed colonies (pop vs. jobs target above average) toward worse-staffed ones; births add people.
+Result, 600 ticks (50 years), seed 7 (`run_colonize.csv`, `fig12_colonization.png`, `view_colonize.png`):
+first outposts in years 5-8, 9 colonies by year 28 (all in or near the home system), all 99 other planets surveyed by year 28 with 2 survey ships,
+population 600 -> 2,010, facilities 142 -> 386, prices low after the first years (Parts ~30, Food/Ore ~5). An early Parts crunch (years 2-5) clears once the first Ore outposts open.
+Open: expansion stalls after year 28 because demand is met and outposts are judged only on current shortages (no speculative or long-distance colonization);
+32 Extractor corporations exist but most are idle; claims sell slowly (4 of dozens of finds).
