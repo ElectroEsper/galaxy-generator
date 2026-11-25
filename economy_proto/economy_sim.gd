@@ -176,7 +176,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -198,17 +198,17 @@ func metrics_row() -> String:
 	for c in markets:
 		if c.richness.has(Goods.WATER): water_sites += 1
 		water_avg += c.price[Goods.WATER] / markets.size()
-	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0
+	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0; var sclass : int = 0
 	for k in corps:
 		match k.kind:
 			Corporation.Kind.EXTRACTOR: ex += 1
 			Corporation.Kind.PRODUCER: pr += 1
 			Corporation.Kind.FREIGHT: fr += 1
-		fac += k.facilities.size(); ships += k.ships
+		fac += k.facilities.size(); ships += k.ships; sclass = maxi(sclass, k.ship_class if k.kind == Corporation.Kind.FREIGHT else 0)
 		upg += k.upgrades
 		for f in k.facilities:
 			lvl_sum += f.level
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass]

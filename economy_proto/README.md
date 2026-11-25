@@ -118,3 +118,11 @@ Figure: `docs/economy_results/fig10_long_run.png`; data `run_6000_capped.csv`, `
 Both settle by tick ~600 and stay flat for 5,400 more ticks: no collapse, no drift. Uncapped: pop ~11,000, 100/100 colonies with jobs, Water ~18.
 Capped (old main): pop ~8,500, 80 colonies with jobs after a dip to ~62 around tick 1,500, Water ~60 (shipping-limited).
 Parts and Food converge to ~75 in both runs. Uncapped fleet grows linearly to ~6,000 ships (needs a brake).
+
+## Ship classes (experiment)
+Freight fleets now have a hull class (cargo x2, upkeep x1.4 per class, max 6); the corporation either buys a ship or refits the whole fleet, whichever is cheaper per unit of cargo.
+Growth requires >85% of voyages finding a lane AND average hold fill > 50%.
+Result (600 ticks, 100 planets): the fleet jumps to class 4 (48 units) within ~40 ticks and then stops at 4-16 ships; Water stays ~57, pop ~7,400-8,000 (about the old capped result, worse than uncapped ~10,700).
+Finding: hold size is not the bottleneck. A voyage is one delivery per tick and each pickup is limited to half the source stock, so what matters is deliveries per tick,
+and bigger hulls just run half-empty. Next: let a ship serve several lanes per tick (or voyages take multiple ticks by distance), then add the cost brake.
+Data: `docs/economy_results/run_ship_classes.csv`.
