@@ -8,6 +8,7 @@ const COVER_TICKS := 10.0
 
 var name : String
 var pop : float
+var port_used : int = 0            # deliveries handled this tick (reset each tick)
 var richness : Dictionary          # Goods.ID -> float (raw goods only)
 var stock : Dictionary = {}
 var price : Dictionary = {}
@@ -107,3 +108,13 @@ func tick() -> void:
 	requests.clear()
 	var premium : float = (price[Goods.FOOD] + price[Goods.PARTS]) / (2.0 * BASE_PRICE) - 1.0
 	shortfall_signal = 0.9 * shortfall_signal + 0.1 * premium
+
+## Port congestion: a colony can load/unload only so many deliveries per tick, whoever's ships they are.
+const PORT_BASE := 2
+const PORT_POP_PER_SLOT := 100.0
+
+func port_slots() -> int:
+	return PORT_BASE + int(pop / PORT_POP_PER_SLOT)
+
+func port_free() -> bool:
+	return port_used < port_slots()

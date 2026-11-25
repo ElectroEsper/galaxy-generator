@@ -21,7 +21,6 @@ var tick_count : int = 0
 @export var all_planets : bool = false     # true: every generated planet is a colony (galaxy_colonies = how many)
 var max_corps : int = 12
 var growth_enabled : bool = true
-const MAX_FREIGHT_CORPS := 4
 
 func _ready() -> void:
 	setup()
@@ -70,6 +69,7 @@ func step() -> void:
 func _tick(t : int) -> void:
 	for c in markets:
 		c.jobs = 0.0
+		c.port_used = 0
 	for k in corps:
 		for f in k.facilities:
 			f.colony.jobs += 1.0
@@ -130,7 +130,7 @@ func _founding_kind() -> Corporation.Kind:
 	for k in corps:
 		if k.kind == Corporation.Kind.FREIGHT:
 			fr += k.utilisation; fn += 1
-	if fn == 0 or (fn < MAX_FREIGHT_CORPS and fr / fn > 0.85 and randf() < 0.3):
+	if fn == 0 or (fr / fn > 0.85 and randf() < 0.3):
 		return Corporation.Kind.FREIGHT
 	var raw_unmet : float = 0.0
 	var proc_unmet : float = 0.0
@@ -177,7 +177,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -199,17 +199,21 @@ func metrics_row() -> String:
 	for c in markets:
 		if c.richness.has(Goods.WATER): water_sites += 1
 		water_avg += c.price[Goods.WATER] / markets.size()
-	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0
+	var pu : float = 0.0; var ps : float = 0.0
+	for c in markets:
+		pu += c.port_used; ps += c.port_slots()
+	var port_use : float = pu / maxf(ps, 1.0)
+	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0; var sclass : int = 0
 	for k in corps:
 		match k.kind:
 			Corporation.Kind.EXTRACTOR: ex += 1
 			Corporation.Kind.PRODUCER: pr += 1
 			Corporation.Kind.FREIGHT: fr += 1
-		fac += k.facilities.size(); ships += k.ships
+		fac += k.facilities.size(); ships += k.ships; sclass = maxi(sclass, k.ship_class if k.kind == Corporation.Kind.FREIGHT else 0)
 		upg += k.upgrades
 		for f in k.facilities:
 			lvl_sum += f.level
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use]

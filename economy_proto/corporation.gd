@@ -9,6 +9,13 @@ const CAPEX := 80.0
 const UPKEEP := 1.0
 const SHIP_CAPACITY := 6.0
 const SHIP_UPKEEP := 1.5
+const CLASS_CAP_MULT := 2.0     # cargo per ship doubles each fleet class
+const CLASS_UPKEEP_MULT := 1.4  # but upkeep per ship only x1.4, so bigger hulls are cheaper per unit
+const CLASS_REFIT_COST := 0.3   # refit cost = CAPEX * ships * this * class
+const MAX_SHIP_CLASS := 6
+const SHIP_TIME := 4.0      # distance units a ship can sail per tick (a delivery costs its lane distance + LOAD_TIME)
+const LOAD_TIME := 0.5
+const GROW_FILL := 0.15    # add capacity only while holds are at least this full on average
 const SHIP_COST := 0.4        # per unit per distance step
 const PAYBACK_HORIZON := 25.0 # ticks; expand only if CAPEX / margin < this
 const REQUEST_COVER := 4.0     # producers ask Freight to keep this many ticks of inputs on the shelf
@@ -46,10 +53,13 @@ var kind : Kind
 var cash : float
 var facilities : Array[Facility] = []
 var ships : int = 0
+var ship_class : int = 1       # fleet-wide hull class; refits upgrade every ship at once
 var broke_ticks : int = 0
 var idle_ticks : int = 0
 var upgrades : int = 0
-var utilisation : float = 0.0
+var utilisation : float = 0.0   # share of voyages that found a profitable lane
+var marg_rate : float = 0.0    # EMA profit per unit of sailing time on the last (marginal) delivery each tick
+var fill : float = 0.0          # average hold fill on those voyages
 var moved : float = 0.0
 var last_moves : Array = []       # shipments made this tick (for the visual layer)
 
@@ -224,22 +234,30 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 		_register(f, 1.0)
 		best_new_c.facility_count += 1
 
+func ship_capacity() -> float:
+	return SHIP_CAPACITY * pow(CLASS_CAP_MULT, ship_class - 1)
+
 func _run_freight(markets : Array[ColonyMarket]) -> void:
 	last_moves = []
-	var voyages : int = 1 + ships          # every ship makes one voyage per tick
-	var cap : float = SHIP_CAPACITY
+	var budget : float = float(1 + ships) * SHIP_TIME   # fleet sailing time this tick; short lanes allow many deliveries per ship
+	var total_budget : float = budget
+	var cap : float = ship_capacity()
 	var done : int = 0
+	var moved_before : float = moved
+	var last_rate : float = -1.0
 	# Contracts first: deliver inputs that producers have asked for (producer pays the shipping fee).
 	for dest in markets:
-		if done >= voyages:
+		if budget <= 0.0:
 			break
 		for req in dest.requests:
-			if done >= voyages:
+			if budget <= 0.0:
+				break
+			if not dest.port_free():
 				break
 			var g : int = req["good"]
 			var src : ColonyMarket = null
 			for m in markets:
-				if m != dest and m.stock[g] >= 8.0 and (src == null or m.stock[g] > src.stock[g]):
+				if m != dest and m.port_free() and m.stock[g] >= 8.0 and (src == null or m.stock[g] > src.stock[g]):
 					src = m
 			if src == null:
 				continue
@@ -247,6 +265,8 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 			if q <= 0.0:
 				continue
 			var fee : float = SHIP_COST * _dist(src, dest, markets) * q
+			budget -= _dist(src, dest, markets) + LOAD_TIME
+			src.port_used += 1; dest.port_used += 1
 			src.stock[g] -= q; dest.stock[g] += q
 			req["qty"] -= q
 			cash += q * (dest.price[g] - src.price[g]) + fee
@@ -264,15 +284,15 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		sources[g] = by_price.slice(0, 6)
 		by_price.reverse()
 		dests[g] = by_price.slice(0, 6)
-	for v in range(done, voyages):
+	while budget > 0.0:
 		var best_m : float = 0.0
 		var best : Array = []
 		for g in Goods.ALL:
 			for a in sources[g]:
-				if a.stock[g] < 6.0:
+				if a.stock[g] < 6.0 or not a.port_free():
 					continue
 				for b in dests[g]:
-					if a == b:
+					if a == b or not b.port_free():
 						continue
 					var m : float = b.price[g] - a.price[g] - SHIP_COST * _dist(a, b, markets)
 					if m > best_m:
@@ -283,17 +303,38 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 		var q : float = minf(minf(a.stock[g] * 0.5, cap), maxf(0.0, cash / a.price[g]))
 		if q <= 0.0:
 			break
+		var trip : float = _dist(a, b, markets) + LOAD_TIME
+		budget -= trip
+		last_rate = q * best_m / trip
+		a.port_used += 1; b.port_used += 1
 		a.stock[g] -= q; b.stock[g] += q
 		cash += q * best_m
 		moved += q
 		done += 1
 		last_moves.append({"from": a, "to": b, "good": g, "qty": q})
-	utilisation = 0.8 * utilisation + 0.2 * (float(done) / float(voyages))
-	cash -= SHIP_UPKEEP * (1 + ships)
+	utilisation = 0.8 * utilisation + 0.2 * (1.0 - maxf(budget, 0.0) / total_budget)
+	# Fill: how full the holds were on the voyages made. Half-empty holds mean capacity isn't the bottleneck.
+	if done > 0:
+		fill = 0.8 * fill + 0.2 * minf((moved - moved_before) / (float(done) * cap), 1.0)
+	if last_rate >= 0.0:
+		marg_rate = 0.9 * marg_rate + 0.1 * last_rate
+	elif budget > 0.0:
+		marg_rate *= 0.9    # lanes ran dry before the budget did: extra ships earn nothing
+	cash -= SHIP_UPKEEP * pow(CLASS_UPKEEP_MULT, ship_class - 1) * (1 + ships)
 	# Fleet grows only while it is actually busy, and shrinks when idle.
-	var fleet_cap : int = maxi(3, markets.size() / 4)   # lanes, not cash, limit how many ships are useful
-	if cash > CAPEX * 3.0 and utilisation > 0.85 and ships < fleet_cap:
-		cash -= CAPEX; ships += 1
+	# No fleet cap: cash and utilisation alone decide.
+	# Brake: a new ship must pay for itself (same payback rule as facilities), judged on the marginal delivery, not the average.
+	var ship_upkeep : float = SHIP_UPKEEP * pow(CLASS_UPKEEP_MULT, ship_class - 1)
+	var marg_gain : float = marg_rate * SHIP_TIME - ship_upkeep
+	if cash > CAPEX * 3.0 and utilisation > 0.85 and fill > GROW_FILL and marg_gain > 0.0 and CAPEX / marg_gain < PAYBACK_HORIZON:
+		# Grow by whichever is cheaper per unit of cargo: one more ship, or refitting the whole fleet to the next class.
+		var refit : float = CAPEX * float(ships) * CLASS_REFIT_COST * float(ship_class)
+		var refit_per_cap : float = refit / (float(ships) * ship_capacity() * (CLASS_CAP_MULT - 1.0)) if ships > 0 else INF
+		var ship_per_cap : float = CAPEX / ship_capacity()
+		if ship_class < MAX_SHIP_CLASS and ships > 0 and refit_per_cap < ship_per_cap and cash > refit * 2.0:
+			cash -= refit; ship_class += 1
+		else:
+			cash -= CAPEX; ships += 1
 	elif utilisation < 0.25 and ships > 0:
 		ships -= 1
 
