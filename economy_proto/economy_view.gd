@@ -102,7 +102,7 @@ func _draw() -> void:
 		var n : String = Corporation.Kind.find_key(k.kind)
 		kinds[n] = kinds.get(n, 0) + 1
 		cash_total += k.cash
-	draw_string(font, Vector2(16, 24), "tick %d   corps %s   promotions %d   attractions %d   ships in transit %d" % [sim.tick_count, kinds, sim.promotions, sim.attractions, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+	draw_string(font, Vector2(16, 24), "%s (tick %d)   corps %s   promotions %d   attractions %d   ships in transit %d" % [sim.date_label(), sim.tick_count, kinds, sim.promotions, sim.attractions, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
 	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f   colour: green = supplied, red = Food/Parts shortage" % speed_mult, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
 	var lx : float = 16.0
 	for g in Goods.ALL:

@@ -178,3 +178,10 @@ The Freight fleet was the bottleneck, not richness: ships at class 4 (48 units) 
 `PORT_BASE` 2 -> 4. Tick 400: Ore extracted 590 -> 853 (belts 136 -> 280), Food stockouts 47 -> 37. 1200 ticks (`run_ports4_1200.csv`), vs previous (salvage) run:
 pop 11,708 -> 13,575, Ore 32 -> 21, Metal 38 -> 26, Parts 62 -> 55, Food 61 -> 45, Water 35 -> 12, fleet 58 -> 76 ships, all 100 colonies with jobs.
 Remaining oddity: class-4 hulls are mostly empty (fill 0.15-0.3) because the class refit happens in the first ~40 ticks, before real flows exist; gate refits on hold fill.
+
+## Time scale: one tick = one month
+`EconomySim.MONTHS_PER_TICK = 1.0`, with `years_elapsed()` / `date_label()` (shown in the HUD as "year Y, month M"). Rates are now tuned against that:
+- births 0.3%/tick (~3.7%/year with food and room; was 0.8%, ~10%/year), starvation 2%/tick (~21%/year), payback horizon 25 ticks (~2 years), a freight run ~ a month.
+- 6,000 ticks = 500 years; 600 ticks = 50 years.
+Effect (`run_birth003_1200.csv` vs `run_ports4_1200.csv`): slower early growth (pop at tick 100: 5,500 vs 6,200; tick 300: 8,500 vs 9,800), converging by tick ~1000 (12,400 vs 13,600 at 1,200; all 100 colonies with jobs, Parts ~58, Food ~55).
+Use this scale when picking new constants (facility build times, ship speed, tech/upgrade durations).

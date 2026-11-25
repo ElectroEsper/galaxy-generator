@@ -33,6 +33,16 @@ func run_headless() -> void:
 		if t % PRINT_EVERY == PRINT_EVERY - 1:
 			_print_snapshot(t + 1)
 
+## Time scale: one tick is one month. Rates and horizons across the prototype are tuned to this.
+const MONTHS_PER_TICK := 1.0
+
+func years_elapsed() -> float:
+	return tick_count * MONTHS_PER_TICK / 12.0
+
+func date_label() -> String:
+	var m : int = int(tick_count * MONTHS_PER_TICK)
+	return "year %d, month %d" % [m / 12, m % 12 + 1]
+
 func setup() -> void:
 	seed(7)
 	if use_galaxy:

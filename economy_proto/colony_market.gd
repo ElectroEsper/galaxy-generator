@@ -43,8 +43,9 @@ const BASE_SELF_POP := 30.0
 const JOBS_PER_FACILITY := 8.0
 const MAINT_METAL_PER_POP := 0.004
 const MAINT_PARTS_PER_FACILITY := 0.08
-const BIRTH_RATE := 0.008
-const DEATH_RATE := 0.02
+# Rates are per tick; one tick = one month (see EconomySim.MONTHS_PER_TICK).
+const BIRTH_RATE := 0.003     # ~3.7%/year with enough food and room (historical colonial growth was ~2-4%)
+const DEATH_RATE := 0.02      # ~21%/year when starving
 ## Subsistence: every colony feeds and equips its baseline population without any corporation.
 const SUBSISTENCE_FOOD := BASE_SELF_POP * 0.05
 const SUBSISTENCE_PARTS := BASE_SELF_POP * 0.012
