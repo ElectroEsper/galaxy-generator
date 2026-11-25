@@ -315,3 +315,11 @@ afford that isn't a good its own plants are idling on, then compares it with its
 - ms per month: 14 at 10 colonies, 52 at 51, 82 at 76, 178 at 101 (vs 126 at 120 colonies on 200 systems).
 - Outcome: 101 colonies in 58 systems, pop 5,750; only 267 of 1,000 systems charted and 2,754 bodies surveyed by year 100, so exploration
   would carry on for centuries; survey fleet 2 -> ~40 ships, 22 sector discoveries; treasury 9.2M; Parts ~90 and Food ~33 (supply strained at this pace).
+
+## Survey board; deterministic tie-breaks
+- Survey targets are ranked once into a **survey board** (value per month of ship time for every charted body), rebuilt only when a survey completes, space is
+  charted, a colony is founded or a month starts. Each free ship takes the best body nobody is surveying.
+- Both boards now break ties explicitly by scan order. Godot's `sort_custom` isn't stable, and equal paybacks are common (prices pinned at the cap), so the
+  old order could depend on the sort's internals. With the old unstable sort the survey board reproduces the previous output exactly (100 and 1,000 systems);
+  with the tie-break, 100 systems is still identical and 1,000 systems diverges (101 -> 117 colonies by year 100) purely through tie order.
+- 1,000 systems, 100 years: 80 s -> **73 s**; surveyors 25 s -> 14 s. Extractors (45 s, running and upgrading their own facilities) are now ~60% of the time.

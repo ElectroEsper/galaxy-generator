@@ -232,6 +232,7 @@ func found_outpost(c : ColonyMarket) -> bool:
 	donor.pop -= Corporation.OUTPOST_SETTLERS
 	c.settle(Corporation.OUTPOST_SETTLERS)
 	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
+	Corporation.survey_board_valid = false
 	_reveal_around(c.position, COLONY_HORIZON)
 	c.growth_enabled = growth_enabled
 	markets.append(c)
@@ -272,6 +273,7 @@ func _state_colonize() -> void:
 	donor.pop -= STATE_SETTLERS
 	best.settle(STATE_SETTLERS)
 	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
+	Corporation.survey_board_valid = false
 	_reveal_around(best.position, COLONY_HORIZON)
 	best.growth_enabled = growth_enabled
 	best.local_cash = STATE_GRANT
@@ -300,6 +302,7 @@ func known_frontier() -> Array:
 
 func _reveal_around(pos : Vector2, radius : float) -> int:
 	_known_valid = false
+	Corporation.survey_board_valid = false
 	var n : int = 0
 	for sys in GalaxyColonies.systems:
 		if not sys.known and sys.position.distance_to(pos) <= radius:
@@ -391,6 +394,7 @@ func _tick(t : int) -> void:
 	var t0 : int = Time.get_ticks_usec()
 	Corporation.reg_cache.clear()
 	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
+	Corporation.survey_board_valid = false
 	for c in markets:
 		c.jobs = 0.0
 		c.port_used = 0

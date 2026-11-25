@@ -167,7 +167,7 @@ static func _opportunity_board(markets : Array[ColonyMarket], k : Kind) -> Array
 			var m : float = _unit_margin(c, g, as_recipe) * q * _input_availability(c, g, as_recipe) * absorb - UPKEEP
 			var cost_n : float = CAPEX + _materials_cost(c, 1.0)
 			if m > 0.0:
-				opts.append({"pb": cost_n / m, "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
+				opts.append({"pb": cost_n / m, "i": opts.size(), "c": c, "g": g, "recipe": as_recipe, "frontier": false, "cost": cost_n})
 	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
 	if k == Kind.EXTRACTOR and world != null:
 		for c in world.frontier_candidates():
@@ -185,8 +185,8 @@ static func _opportunity_board(markets : Array[ColonyMarket], k : Kind) -> Array
 				var cost : float = CAPEX + OUTPOST_COST + fee + _materials_cost(near, 1.0, true)
 				if m > 0.0:
 					# compared on the same scale as ordinary projects: payback / (OUTPOST_PAYBACK / PAYBACK_HORIZON)
-					opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
-	opts.sort_custom(func(x, y): return x["pb"] < y["pb"])
+					opts.append({"pb": cost / m * PAYBACK_HORIZON / OUTPOST_PAYBACK, "i": opts.size(), "c": c, "g": g, "recipe": false, "frontier": true, "cost": cost})
+	opts.sort_custom(func(x, y): return x["pb"] < y["pb"] or (x["pb"] == y["pb"] and x["i"] < y["i"]))
 	reg_cache[key] = opts
 	return opts
 
@@ -581,23 +581,40 @@ func _run_survey(markets : Array[ColonyMarket]) -> void:
 
 ## Surveyors can't see true richness: an unsurveyed planet is worth a flat prior, a surveyed one a little
 ## less each time (they can't tell how much is left). Value per month of ship time, nearest first.
-func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
-	var best : ColonyMarket = null
-	var best_v : float = 0.0
-	var busy : Dictionary = {}
-	for k in world.corps:
-		if k.kind == Kind.SURVEYOR:
-			for j in k.survey_jobs: busy[j["target"]] = true
+## The survey board: every charted body ranked by value per month of ship time, built once and reused until something
+## that affects it changes (a survey completes, space is charted, a colony is founded, a new month starts).
+static var survey_board : Array = []
+static var survey_board_valid : bool = false
+
+static func _build_survey_board(markets : Array[ColonyMarket]) -> void:
+	var rows : Array = []
+	var i : int = 0
 	for c in world.known_frontier() + markets:
-		if busy.has(c):
-			continue
 		var known : float = 0.0
 		for g in c.richness: known += c.richness[g]
 		var ev : float = 1.0 if c.surveys == 0 else 0.4 * known / float(c.surveys)
 		var v : float = ev / (survey_months(c) + _dist(c, world.nearest_settled(c), markets) / SHIP_TIME)
-		if v > best_v:
-			best_v = v; best = c
-	return best
+		if v > 0.0:
+			rows.append([v, i, c])
+		i += 1
+	# Best first; equal values keep scan order (same pick as a linear scan with a strict '>').
+	rows.sort_custom(func(a, b): return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
+	survey_board = rows
+	survey_board_valid = true
+
+## Surveyors can't see true richness: an unsurveyed planet is worth a flat prior, a surveyed one a little
+## less each time (they can't tell how much is left). Each free ship takes the best body nobody is surveying.
+func _pick_survey_target(markets : Array[ColonyMarket]) -> ColonyMarket:
+	if not survey_board_valid:
+		_build_survey_board(markets)
+	var busy : Dictionary = {}
+	for k in world.corps:
+		if k.kind == Kind.SURVEYOR:
+			for j in k.survey_jobs: busy[j["target"]] = true
+	for row in survey_board:
+		if not busy.has(row[2]):
+			return row[2]
+	return null
 
 func _complete_survey(t : ColonyMarket) -> void:
 	if t.surveys == 0:
@@ -609,6 +626,7 @@ func _complete_survey(t : ColonyMarket) -> void:
 		cash += fee
 		if world != null: world.treasury -= fee
 	t.surveys += 1
+	survey_board_valid = false
 	surveys_done += 1
 	for g in t.hidden_richness:
 		var r : float = t.hidden_richness[g]
