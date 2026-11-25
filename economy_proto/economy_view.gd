@@ -25,6 +25,12 @@ var lane_heat : Dictionary = {}   # "A-B" -> recent traffic (fades)
 var accum : float = 0.0
 var paused : bool = false
 var speed_mult : float = 1.0
+# Territory layer: each empire's systems claim the space around them (nearest claimed system within TERRITORY_RADIUS),
+# rendered to a small image and redrawn only when a system changes hands.
+const TERRITORY_RADIUS := 70.0
+const TERRITORY_CELL := 6.0
+var territory_tex : ImageTexture = null
+var territory_sig : String = ""
 
 func _ready() -> void:
 	sim = load("res://economy_proto/economy_sim.gd").new()
@@ -32,6 +38,8 @@ func _ready() -> void:
 	sim.use_galaxy = true
 	sim.all_planets = true
 	sim.galaxy_colonies = 100
+	sim.galaxy_systems = 46          # one screen's worth of star systems
+	sim.num_empires = 4
 	sim.max_corps = 60
 	sim.colonize = true
 	add_child(sim)
@@ -71,11 +79,53 @@ func _shortage(c : ColonyMarket) -> float:
 	var p : float = (c.price[Goods.FOOD] + c.price[Goods.PARTS]) / (2.0 * ColonyMarket.BASE_PRICE)
 	return clampf((p - 1.0) / 3.0, 0.0, 1.0)
 
+func _territory_signature() -> String:
+	var parts : PackedStringArray = []
+	for sys in GalaxyColonies.systems:
+		if sys.owner != null: parts.append("%s=%d" % [sys.name, sys.owner.id])
+	return ",".join(parts)
+
+func _rebuild_territory() -> void:
+	var size : Vector2 = get_viewport_rect().size
+	var cols : int = int(ceil(size.x / TERRITORY_CELL)); var rows : int = int(ceil(size.y / TERRITORY_CELL))
+	var best_d := PackedFloat32Array(); best_d.resize(cols * rows); best_d.fill(INF)
+	var owner_of := PackedInt32Array(); owner_of.resize(cols * rows); owner_of.fill(-1)
+	var r_cells : int = int(ceil(TERRITORY_RADIUS / TERRITORY_CELL))
+	for sys in GalaxyColonies.systems:
+		if sys.owner == null: continue
+		var cx : int = int(sys.position.x / TERRITORY_CELL); var cy : int = int(sys.position.y / TERRITORY_CELL)
+		for y in range(maxi(0, cy - r_cells), mini(rows, cy + r_cells + 1)):
+			for x in range(maxi(0, cx - r_cells), mini(cols, cx + r_cells + 1)):
+				var d : float = Vector2((x + 0.5) * TERRITORY_CELL, (y + 0.5) * TERRITORY_CELL).distance_to(sys.position)
+				var i : int = y * cols + x
+				if d <= TERRITORY_RADIUS and d < best_d[i]:
+					best_d[i] = d; owner_of[i] = sys.owner.id
+	var img := Image.create(cols, rows, false, Image.FORMAT_RGBA8)
+	for y in rows:
+		for x in cols:
+			var o : int = owner_of[y * cols + x]
+			if o < 0:
+				img.set_pixel(x, y, Color(0, 0, 0, 0)); continue
+			var border : bool = false
+			for n in [Vector2i(x + 1, y), Vector2i(x - 1, y), Vector2i(x, y + 1), Vector2i(x, y - 1)]:
+				if n.x < 0 or n.y < 0 or n.x >= cols or n.y >= rows or owner_of[n.y * cols + n.x] != o:
+					border = true; break
+			var col : Color = sim.empires[o].color
+			img.set_pixel(x, y, Color(col, 0.75 if border else 0.13))
+	territory_tex = ImageTexture.create_from_image(img)
+
 func _draw() -> void:
 	var font : Font = ThemeDB.fallback_font
 	var markets : Array[ColonyMarket] = sim.markets
 	var sys_pos : Dictionary = {}
 	for sys in GalaxyColonies.systems: sys_pos[sys.name] = sys.position
+	# Empire territory (under everything else)
+	if sim.empires.size() > 0:
+		var sig : String = _territory_signature()
+		if sig != territory_sig or territory_tex == null:
+			territory_sig = sig
+			_rebuild_territory()
+		draw_texture_rect(territory_tex, Rect2(Vector2.ZERO, Vector2(territory_tex.get_width(), territory_tex.get_height()) * TERRITORY_CELL), false)
 	# Lanes between star systems that trade (heat = recent traffic)
 	for key in lane_heat:
 		var heat : float = lane_heat[key]
@@ -126,6 +176,16 @@ func _draw() -> void:
 		cash_total += k.cash
 	draw_string(font, Vector2(16, 24), "%s (tick %d)   colonies %d (%d systems)   surveyed %d   corps %s   ships in transit %d" % [sim.date_label(), sim.tick_count, markets.size(), GalaxyColonies.systems.filter(func(s): return not s.settled_bodies().is_empty()).size(), sim.frontier.filter(func(c): return c.surveys > 0).size(), kinds, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
 	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f   node = star system (n/m = colonies/bodies), colour: green supplied, red short; gold ring = known deposits" % speed_mult, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
+	if sim.empires.size() > 1:
+		var ey : float = 84.0
+		for e in sim.empires:
+			var own : Array = markets.filter(func(m): return m.owner == e)
+			var nsys : int = GalaxyColonies.systems.filter(func(s): return s.owner == e).size()
+			var pop : float = 0.0
+			for m in own: pop += m.pop
+			draw_rect(Rect2(Vector2(16, ey - 10), Vector2(12, 12)), e.color)
+			draw_string(font, Vector2(34, ey), "%s   %d colonies, %d systems, pop %d, treasury %dk" % [e.name, own.size(), nsys, pop, e.treasury / 1000.0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
+			ey += 16.0
 	var lx : float = 16.0
 	for g in Goods.ALL:
 		draw_rect(Rect2(Vector2(lx, 52), Vector2(10, 10)), GOOD_COLORS[g])
