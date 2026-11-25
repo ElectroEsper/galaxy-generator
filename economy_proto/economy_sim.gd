@@ -348,7 +348,7 @@ func _has_extraction_site(g : int) -> bool:
 	return false
 
 ## One row of time-series metrics (see METRIC_HEADER).
-const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected"
+const METRIC_HEADER := "tick,pop,colonies_with_jobs,in_shortage,avg_ore,avg_metal,avg_parts,avg_food,extractors,producers,freight,facilities,ships,promotions,attractions,avg_level,upgrades,hydro_facilities,food_extractors,avg_water,water_sites,ship_class,port_use,settled,surveyed,survey_ships,settlements,claims_sold,treasury,corp_cash,tax_collected,under_construction"
 func metrics_row() -> String:
 	var pop : float = 0.0
 	var jobs_n : int = 0
@@ -376,7 +376,11 @@ func metrics_row() -> String:
 	var port_use : float = pu / maxf(ps, 1.0)
 	var ex : int = 0; var pr : int = 0; var fr : int = 0; var fac : int = 0; var ships : int = 0; var sclass : int = 0
 	var surveyed : int = 0; var sships : int = 0; var csold : int = 0; var ccash : float = 0.0
-	for k in corps: ccash += k.cash
+	var nbuild : int = 0
+	for k in corps:
+		ccash += k.cash
+		for f in k.facilities:
+			if f.building(): nbuild += 1
 	for c in frontier:
 		if c.surveys > 0: surveyed += 1
 	for k in corps:
@@ -394,4 +398,4 @@ func metrics_row() -> String:
 			if f.good == Goods.FOOD:
 				if f.recipe_mode: hydro += 1
 				else: farm += 1
-	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected]
+	return "%d,%.0f,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d,%d,%.2f,%d,%d,%d,%.2f,%d,%d,%.3f,%d,%d,%d,%d,%d,%.0f,%.0f,%.0f,%d" % [tick_count, pop, jobs_n, short_n, avg[Goods.ORE], avg[Goods.METAL], avg[Goods.PARTS], avg[Goods.FOOD], ex, pr, fr, fac, ships, promotions, attractions, (lvl_sum / maxf(fac, 1)), upg, hydro, farm, water_avg, water_sites, sclass, port_use, markets.size(), surveyed, sships, settlements, csold, treasury, ccash, tax_collected, nbuild]

@@ -215,3 +215,16 @@ Colonization runs, 50 years, seeds 7/11/23/31 (`fig13_taxes.png`, `run_col_s<see
 - Expansion barely changes: colonies 9/6/12/11 untaxed vs 15/6/10/14 taxed, facilities mixed, population the same. The differences are within seed-to-seed noise.
 Why: corporations decide on payback (cost vs. monthly margin), not on cash, and a facility (80) earns its cost back in a few months, so profits dwarf every investment.
 A cash drain can't bind until building costs scale with what facilities earn (e.g. capex paid in Metal/Parts as construction materials, or capex tied to output value).
+
+## Construction materials
+New facilities and upgrades are now construction projects: Metal and Parts must be delivered to the site (taken from the colony's shelf at local prices, the rest requested from Freight)
+and they take at least 6 months. A new facility produces nothing until finished; an upgrading one keeps running at its old level. Materials count as demand.
+Amounts: new facility 10 Metal + 4 Parts; upgrades x(0.4 + 0.2 x level); an outpost adds 15 Metal + 6 Parts (habitat). The payback test includes materials at today's prices.
+Outposts are judged on a 60-month horizon instead of 25 (a new colony is a long-term investment). Metric: `under_construction`.
+First try (20+10 per facility, 30+15 per outpost, 25-month horizon for outposts): no outpost in 50 years on seeds 7 and 23. The Ore-poor capital's Parts sit at the price cap,
+an outpost then costs ~3,600 instead of ~390, and without Ore outposts Parts never get cheaper: a poverty trap. Hence the lighter amounts and the longer outpost horizon.
+Result, 4 seeds, 50 years, vs taxes-only (`fig14_construction.png`, `run_build_s<seed>_t1.csv`):
+- Slow start, then acceleration: 1-2 colonies for the first 10-35 years, then 12/13/18/21 colonies by year 50 (taxes-only: 15/6/10/14). Note this also includes the longer outpost horizon.
+- Fewer facilities on 3 of 4 seeds (434->325, 222->198, 677->465; 374->393), population a bit lower (2,013->1,352, 2,069->1,816, 2,081->1,790; seed 11 879->1,041).
+- Corporate cash 3-6x lower (4.6M -> 0.8M on seed 7), treasury 1.7-3.8M: capital now binds.
+- Parts is the scarce good again (~55-65 vs ~16-24), because construction competes with consumers and maintenance for it.
