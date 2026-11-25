@@ -112,6 +112,7 @@ func seed_facility(c : ColonyMarket, g : int, recipe : bool = false) -> void:
 
 ## Keep colony capacity / extraction bookkeeping in sync with a facility's throughput.
 func _register(f : Facility, sign : float) -> void:
+	reg_cache.clear()
 	f.colony.capacity[f.good] += sign * f.throughput()
 	if f.extracts():
 		f.colony.extraction[f.good] = f.colony.extraction.get(f.good, 0.0) + sign * f.throughput()
@@ -137,10 +138,18 @@ func dissolve() -> void:
 		if f.extracts(): f.colony.extractor_count -= 1
 	facilities.clear()
 
+## Regional totals are asked for thousands of times a tick, so they're cached: `use` only changes when markets tick
+## (the sim clears the cache each tick), `capacity` entries are dropped whenever a facility is (un)registered.
+static var reg_cache : Dictionary = {}
+
 static func _regional(markets : Array[ColonyMarket], field : String, g : int) -> float:
+	var key : String = "%s%d:%d" % [field, g, markets.size()]
+	if reg_cache.has(key):
+		return reg_cache[key]
 	var t : float = 0.0
 	for m in markets:
 		t += m.get(field)[g]
+	reg_cache[key] = t
 	return t
 
 func run(markets : Array[ColonyMarket]) -> void:
@@ -278,8 +287,8 @@ func _review_and_expand(markets : Array[ColonyMarket]) -> void:
 	# Colonization: an Extractor can found an outpost on a surveyed, unsettled planet to work a known deposit.
 	var best_frontier : bool = false
 	if kind == Kind.EXTRACTOR and world != null:
-		for c in world.frontier:
-			if c.settled or c.richness.is_empty() or not world.can_send_settlers(c):
+		for c in world.frontier_candidates():
+			if c.settled or not world.can_send_settlers(c):
 				continue
 			var near : ColonyMarket = world.nearest_settled(c)
 			for g in c.richness:

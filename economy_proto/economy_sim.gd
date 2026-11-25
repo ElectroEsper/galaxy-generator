@@ -172,8 +172,27 @@ func _seed_capital() -> void:
 			ex.cash = 40.0 * ex.facilities.size() + 300.0
 			pr.cash = 40.0 * pr.facilities.size() + 300.0
 
-## Closest settled colony (where supplies, settlers and survey ships come from).
+var _near_cache : Dictionary = {}
+var _cand_cache : Array = []
+var _cand_valid : bool = false
+
+## Unsettled bodies with known deposits (outpost candidates), computed once per tick.
+func frontier_candidates() -> Array:
+	if not _cand_valid:
+		_cand_cache = frontier.filter(func(c): return not c.settled and not c.richness.is_empty())
+		_cand_valid = true
+	return _cand_cache
+var _donor_cache : Dictionary = {}
+
+## Closest settled colony (where supplies, settlers and survey ships come from). Cached per tick.
 func nearest_settled(c : ColonyMarket) -> ColonyMarket:
+	if _near_cache.has(c):
+		return _near_cache[c]
+	var r : ColonyMarket = _nearest_settled_uncached(c)
+	_near_cache[c] = r
+	return r
+
+func _nearest_settled_uncached(c : ColonyMarket) -> ColonyMarket:
 	var best : ColonyMarket = capital
 	var bd : float = INF
 	for m in markets:
@@ -183,6 +202,13 @@ func nearest_settled(c : ColonyMarket) -> ColonyMarket:
 	return best
 
 func _settler_donor(c : ColonyMarket) -> ColonyMarket:
+	if _donor_cache.has(c):
+		return _donor_cache[c]
+	var r : ColonyMarket = _settler_donor_uncached(c)
+	_donor_cache[c] = r
+	return r
+
+func _settler_donor_uncached(c : ColonyMarket) -> ColonyMarket:
 	# Colonization companies recruit volunteers from any colony big enough to spare them (the home colony's
 	# own labour gap grows a little), preferring well-staffed colonies close to the target.
 	var best : ColonyMarket = null
@@ -205,6 +231,7 @@ func found_outpost(c : ColonyMarket) -> bool:
 		return false
 	donor.pop -= Corporation.OUTPOST_SETTLERS
 	c.settle(Corporation.OUTPOST_SETTLERS)
+	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
 	_reveal_around(c.position, COLONY_HORIZON)
 	c.growth_enabled = growth_enabled
 	markets.append(c)
@@ -244,6 +271,7 @@ func _state_colonize() -> void:
 	near.stock[Goods.PARTS] = maxf(0.0, near.stock[Goods.PARTS] - STATE_HABITAT_PARTS)
 	donor.pop -= STATE_SETTLERS
 	best.settle(STATE_SETTLERS)
+	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
 	_reveal_around(best.position, COLONY_HORIZON)
 	best.growth_enabled = growth_enabled
 	best.local_cash = STATE_GRANT
@@ -350,6 +378,8 @@ func _p(phase : String, t0 : int) -> int:
 
 func _tick(t : int) -> void:
 	var t0 : int = Time.get_ticks_usec()
+	Corporation.reg_cache.clear()
+	_near_cache.clear(); _donor_cache.clear(); _cand_valid = false
 	for c in markets:
 		c.jobs = 0.0
 		c.port_used = 0
@@ -381,6 +411,7 @@ func _tick(t : int) -> void:
 			corps.append(Corporation.new(Corporation.Kind.SURVEYOR, 600.0))   # the state re-charters a survey service
 			treasury -= 600.0
 	t0 = Time.get_ticks_usec()
+	Corporation.reg_cache.clear()
 	for c in markets.duplicate():
 		c.tick()
 		if t > 20 and corps.size() < max_corps:

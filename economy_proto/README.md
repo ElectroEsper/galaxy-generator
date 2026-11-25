@@ -283,3 +283,17 @@ Result, 500 planets (= only ~46 star systems, ~11 bodies each), 100 years, seeds
 - The map is too small for repeated booms: each discovery charts ~5-15 of 46 systems. A bigger galaxy (the scaling test) or smaller sectors should give distinct waves.
 - Colonies keep growing for the whole century (113 / 151 by year 100, pop 6,400 / 7,300).
 The old all-planets-settled mode still runs after the star-system change (checked 120 ticks).
+
+## Scaling test and profiling (`systems=N`; output `TIME,` and `PROFILE,` lines)
+`systems=N` generates exactly N star systems with all their bodies, on a map scaled so star density stays the same. The runner prints ms per tick each decade
+and cumulative time per tick phase. Runs: 25 / 50 / 100 / 200 systems (290 / 547 / 1,053 / 2,150 bodies), 50 years, colonize + state (`fig19_scaling.png`, `docs/economy_results/scaling/`).
+- **Cost follows colonies, not galaxy size.** Every size ends with ~50-53 colonies (the state's one-a-year pace dominates), and ms/tick climbs with them:
+  ~4 at 10 colonies, ~30 at 20, ~85 at 30, ~170 at 40, ~490-590 at ~52 (faster than quadratic). 25 systems is cheaper only late (225 ms).
+- **Extractors are 90-95% of the time** (98 s of 106 s at 100 systems): ~56 Extractor corporations (most idle) each re-evaluate every colony x good and every
+  outpost candidate each month, and each evaluation summed every market (regional use/capacity) and searched for the nearest colony and a settler donor.
+- Surveyors scale with body count (1 s at 25 systems -> 7 s at 200); freight, producers, markets and the state are small.
+- **Fix 1 (done):** cache regional sums (invalidated when a facility registers / markets tick), nearest-colony and settler-donor lookups per tick, and the outpost-candidate
+  list. Results are bit-identical; 100 systems: 106 s -> 27 s, 588 -> 120 ms/tick at 53 colonies.
+- **Next:** the evaluation is still repeated per corporation although it's the same for all of them except cash. A shared per-tick "opportunity board"
+  (rank options once, corporations take the best they can afford) should remove most of the rest, and suits the idle-Extractor problem too.
+- Exploration at 100-200 systems over 50 years is still one rising boom (fleet 1 -> 30-35 ships, 9-14 sector discoveries); waves would need a longer run.
