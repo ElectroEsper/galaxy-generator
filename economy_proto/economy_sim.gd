@@ -106,6 +106,16 @@ func _setup_corps() -> void:
 ## Several empires can share the galaxy (`num_empires`); with one, behaviour matches the single-state version.
 @export var num_empires : int = 1
 var empires : Array = []
+# --- Relations between empires: contact, opinion, stance, tariffs, incidents (hooks for diplomacy and war later) ---
+const BORDER_RANGE := 90.0           # px: two empires' systems this close count as a shared border segment
+const TRADE_WEIGHT := 8.0            # opinion from trade: x log(1 + monthly trade value between them)
+const BORDER_WEIGHT := 3.0           # opinion lost per shared border segment
+const INCIDENT_PENALTY := 15.0       # opinion lost per incident (decays)
+const INCIDENT_DECAY := 0.98         # per month
+const OPINION_RATE := 0.05           # opinion moves this share of the way to its target each month
+const TARIFF : Dictionary = {"friendly": 0.0, "neutral": 0.10, "hostile": 0.35}
+var relations : Dictionary = {}      # "a:b" (a < b) -> {met, opinion, trade, month_trade, border, incidents, stance}
+var events : Array = []              # [tick, text] - first contacts, incidents, stance changes
 const EMPIRE_COLORS : Array = [Color(0.95, 0.8, 0.35), Color(0.4, 0.75, 1.0), Color(0.95, 0.45, 0.45), Color(0.6, 0.9, 0.5), Color(0.8, 0.6, 1.0), Color(1.0, 0.65, 0.3), Color(0.5, 0.95, 0.9), Color(0.95, 0.6, 0.85)]
 
 func _setup_colonization() -> void:
@@ -310,6 +320,7 @@ func found_outpost(c : ColonyMarket, e : Empire) -> bool:
 	if donor == null or c.settled or not e.may_enter(c):
 		return false
 	donor.pop -= Corporation.OUTPOST_SETTLERS
+	_check_claim_jump(c, e)
 	c.settle(Corporation.OUTPOST_SETTLERS, e)
 	_on_settled(c, e)
 	shipment_made.emit(donor, c, Goods.FOOD, Corporation.OUTPOST_SETTLERS)
@@ -350,6 +361,7 @@ func _state_colonize(e : Empire) -> void:
 	near.stock[Goods.METAL] = maxf(0.0, near.stock[Goods.METAL] - STATE_HABITAT_METAL)
 	near.stock[Goods.PARTS] = maxf(0.0, near.stock[Goods.PARTS] - STATE_HABITAT_PARTS)
 	donor.pop -= STATE_SETTLERS
+	_check_claim_jump(best, e)
 	best.settle(STATE_SETTLERS, e)
 	_clear_empire_caches()
 	_reveal_around(e, best.position, COLONY_HORIZON)
@@ -496,6 +508,9 @@ func _tick(t : int) -> void:
 		t0 = _p("migration", t0)
 		for e in empires: _maybe_discover_sector(e)
 		t0 = _p("sector_events", t0)
+		if empires.size() > 1:
+			_update_relations()
+		t0 = _p("relations", t0)
 		if state_colonization and t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1:
 			for e in empires:
 				_state_colonize(e)
@@ -518,6 +533,78 @@ func _tick(t : int) -> void:
 			k.dissolve()
 	corps = corps.filter(func(k): return not k.is_dead())
 	_p("dissolution", t0)
+
+func _rel(a : Empire, b : Empire) -> Dictionary:
+	var key : String = "%d:%d" % [mini(a.id, b.id), maxi(a.id, b.id)]
+	if not relations.has(key):
+		relations[key] = {"met": false, "opinion": 0.0, "trade": 0.0, "month_trade": 0.0, "border": 0, "incidents": 0.0, "stance": "none"}
+	return relations[key]
+
+func _event(text : String) -> void:
+	events.append([tick_count, text])
+
+## Customs on a delivery from src to dest: the share of the delivered value the destination's empire takes, or -1 if trade
+## between the two empires is impossible (not yet in contact, or embargo). Same empire / no empire: free.
+func tariff_rate(src : ColonyMarket, dest : ColonyMarket) -> float:
+	if src.owner == null or dest.owner == null or src.owner == dest.owner:
+		return 0.0
+	var r : Dictionary = _rel(src.owner, dest.owner)
+	if not r["met"] or r["stance"] == "embargo":
+		return -1.0
+	return TARIFF[r["stance"]]
+
+## Freight reports cross-border deliveries (value at the destination price) and the customs it paid.
+func record_trade(src : ColonyMarket, dest : ColonyMarket, value : float, customs : float) -> void:
+	if src.owner == null or dest.owner == null or src.owner == dest.owner:
+		return
+	_rel(src.owner, dest.owner)["month_trade"] += value
+	dest.owner.treasury += customs
+	dest.owner.customs_collected += customs
+
+## An empire settles a system where another empire had already surveyed bodies: a claim-jumping incident.
+func _check_claim_jump(c : ColonyMarket, e : Empire) -> void:
+	if c.system == null or c.system.owner != null:
+		return                               # only when a system is first claimed
+	for other in empires:
+		if other == e: continue
+		if c.system.bodies.any(func(b): return b.surveys_by(other) > 0):
+			var r : Dictionary = _rel(e, other)
+			r["incidents"] += 1.0
+			_event("%s settled %s, which %s had surveyed (incident)" % [e.name, c.system.name, other.name])
+
+## Monthly: contact, border length, trade, opinion and stance for every pair of empires.
+func _update_relations() -> void:
+	var owned : Dictionary = {}
+	for e in empires: owned[e] = []
+	for sys in GalaxyColonies.systems:
+		if sys.owner != null: owned[sys.owner].append(sys)
+	for i in empires.size():
+		for j in range(i + 1, empires.size()):
+			var a : Empire = empires[i]; var b : Empire = empires[j]
+			var r : Dictionary = _rel(a, b)
+			if not r["met"]:
+				if owned[b].any(func(s): return a.known.has(s)) or owned[a].any(func(s): return b.known.has(s)):
+					r["met"] = true; r["stance"] = "neutral"
+					_event("First contact: %s and %s" % [a.name, b.name])
+				else:
+					continue
+			var border : int = 0
+			for sa in owned[a]:
+				for sb in owned[b]:
+					if sa.position.distance_to(sb.position) <= BORDER_RANGE: border += 1
+			r["border"] = border
+			r["trade"] = 0.9 * r["trade"] + 0.1 * r["month_trade"]
+			r["month_trade"] = 0.0
+			r["incidents"] *= INCIDENT_DECAY
+			var target : float = TRADE_WEIGHT * log(1.0 + r["trade"]) - BORDER_WEIGHT * border - INCIDENT_PENALTY * r["incidents"]
+			r["opinion"] = clampf(r["opinion"] + OPINION_RATE * (target - r["opinion"]), -100.0, 100.0)
+			var st : String = "neutral"
+			if r["opinion"] >= 25.0: st = "friendly"
+			elif r["opinion"] <= -60.0: st = "embargo"
+			elif r["opinion"] <= -25.0: st = "hostile"
+			if st != r["stance"]:
+				_event("%s and %s: %s -> %s (opinion %d)" % [a.name, b.name, r["stance"], st, r["opinion"]])
+				r["stance"] = st
 
 ## Fair turn order between empires: each month a different empire's corporations act first (they compete for the same
 ## lanes, ports and opportunities). Within an empire, corporations keep their order; with one empire nothing changes.
@@ -636,8 +723,17 @@ func _esum(field : String, fallback):
 	for e in empires: t += e.get(field)
 	return t
 
+const RELATION_HEADER := "tick,a,b,met,opinion,stance,border,trade,incidents"
+func relation_rows() -> Array:
+	var rows : Array = []
+	for i in empires.size():
+		for j in range(i + 1, empires.size()):
+			var r : Dictionary = _rel(empires[i], empires[j])
+			rows.append("%d,%d,%d,%d,%.1f,%s,%d,%.1f,%.2f" % [tick_count, i, j, 1 if r["met"] else 0, r["opinion"], r["stance"], r["border"], r["trade"], r["incidents"]])
+	return rows
+
 ## Per-empire metrics, one row per empire (see EMPIRE_HEADER).
-const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps"
+const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps,customs"
 func empire_rows() -> Array:
 	var rows : Array = []
 	for e in empires:
@@ -655,7 +751,7 @@ func empire_rows() -> Array:
 			if k.empire == e:
 				nc += 1
 				if k.kind == Corporation.Kind.SURVEYOR: sships += 1 + k.ships
-		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc])
+		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d,%.0f" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc, e.customs_collected])
 	return rows
 
 ## One row of time-series metrics (see METRIC_HEADER).

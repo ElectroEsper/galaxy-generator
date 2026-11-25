@@ -59,15 +59,22 @@ func _initialize() -> void:
 	print("CSV,", sim.METRIC_HEADER)
 	if sim.empires.size() > 1:
 		print("EMP,", sim.EMPIRE_HEADER)
+		print("REL,", sim.RELATION_HEADER)
 	print("INFO,systems=", gc.systems.size(), ",bodies=", sim.frontier.size() + 1)
 	var wall0 : int = Time.get_ticks_msec()
 	var decade0 : int = wall0
+	var printed_events : int = 0
 	for t in ticks:
 		sim.step()
 		if t % 4 == 3:
 			print("CSV,", sim.metrics_row())
 			if t % 12 == 11 and sim.empires.size() > 1:
 				for row in sim.empire_rows(): print("EMP,", row)
+				for row in sim.relation_rows(): print("REL,", row)
+		while printed_events < sim.events.size():
+			var ev : Array = sim.events[printed_events]
+			print("EVENT,%d,%s" % [ev[0], ev[1]])
+			printed_events += 1
 		if t % 120 == 119:
 			var now : int = Time.get_ticks_msec()
 			print("TIME,decade=%d,ms_per_tick=%.1f,colonies=%d" % [(t + 1) / 120, (now - decade0) / 120.0, sim.markets.size()])

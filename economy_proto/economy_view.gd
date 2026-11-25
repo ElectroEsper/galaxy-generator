@@ -28,8 +28,6 @@ var speed_mult : float = 1.0
 # Territory layer: each empire's systems claim the space around them (nearest claimed system within TERRITORY_RADIUS),
 # rendered to a small image and redrawn only when a system changes hands.
 const TERRITORY_RADIUS := 70.0
-const TERRITORY_CELL := 6.0
-var territory_tex : ImageTexture = null
 var territory_sig : String = ""
 
 func _ready() -> void:
@@ -85,34 +83,32 @@ func _territory_signature() -> String:
 		if sys.owner != null: parts.append("%s=%d" % [sys.name, sys.owner.id])
 	return ",".join(parts)
 
+## Territory is drawn by a shader (territory.gdshader) on a rect under the map: the CPU only uploads the list of claimed
+## systems (position + empire) when a system changes hands; the GPU works out the areas and borders every frame.
+var territory_rect : ColorRect = null
+
 func _rebuild_territory() -> void:
-	var size : Vector2 = get_viewport_rect().size
-	var cols : int = int(ceil(size.x / TERRITORY_CELL)); var rows : int = int(ceil(size.y / TERRITORY_CELL))
-	var best_d := PackedFloat32Array(); best_d.resize(cols * rows); best_d.fill(INF)
-	var owner_of := PackedInt32Array(); owner_of.resize(cols * rows); owner_of.fill(-1)
-	var r_cells : int = int(ceil(TERRITORY_RADIUS / TERRITORY_CELL))
-	for sys in GalaxyColonies.systems:
-		if sys.owner == null: continue
-		var cx : int = int(sys.position.x / TERRITORY_CELL); var cy : int = int(sys.position.y / TERRITORY_CELL)
-		for y in range(maxi(0, cy - r_cells), mini(rows, cy + r_cells + 1)):
-			for x in range(maxi(0, cx - r_cells), mini(cols, cx + r_cells + 1)):
-				var d : float = Vector2((x + 0.5) * TERRITORY_CELL, (y + 0.5) * TERRITORY_CELL).distance_to(sys.position)
-				var i : int = y * cols + x
-				if d <= TERRITORY_RADIUS and d < best_d[i]:
-					best_d[i] = d; owner_of[i] = sys.owner.id
-	var img := Image.create(cols, rows, false, Image.FORMAT_RGBA8)
-	for y in rows:
-		for x in cols:
-			var o : int = owner_of[y * cols + x]
-			if o < 0:
-				img.set_pixel(x, y, Color(0, 0, 0, 0)); continue
-			var border : bool = false
-			for n in [Vector2i(x + 1, y), Vector2i(x - 1, y), Vector2i(x, y + 1), Vector2i(x, y - 1)]:
-				if n.x < 0 or n.y < 0 or n.x >= cols or n.y >= rows or owner_of[n.y * cols + n.x] != o:
-					border = true; break
-			var col : Color = sim.empires[o].color
-			img.set_pixel(x, y, Color(col, 0.75 if border else 0.13))
-	territory_tex = ImageTexture.create_from_image(img)
+	if territory_rect == null:
+		territory_rect = ColorRect.new()
+		territory_rect.size = get_viewport_rect().size
+		territory_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		territory_rect.show_behind_parent = true
+		var mat := ShaderMaterial.new()
+		mat.shader = load("res://economy_proto/territory.gdshader")
+		var cols : Array = []
+		for i in 8:
+			cols.append(sim.empires[i].color if i < sim.empires.size() else Color.WHITE)
+		mat.set_shader_parameter("colors", cols)
+		mat.set_shader_parameter("radius", TERRITORY_RADIUS)
+		territory_rect.material = mat
+		add_child(territory_rect)
+	var claimed : Array = GalaxyColonies.systems.filter(func(s): return s.owner != null)
+	var img := Image.create(maxi(claimed.size(), 1), 1, false, Image.FORMAT_RGBAF)
+	for i in claimed.size():
+		img.set_pixel(i, 0, Color(claimed[i].position.x, claimed[i].position.y, float(claimed[i].owner.id), 1.0))
+	var mat : ShaderMaterial = territory_rect.material
+	mat.set_shader_parameter("systems", ImageTexture.create_from_image(img))
+	mat.set_shader_parameter("count", claimed.size())
 
 func _draw() -> void:
 	var font : Font = ThemeDB.fallback_font
@@ -122,10 +118,9 @@ func _draw() -> void:
 	# Empire territory (under everything else)
 	if sim.empires.size() > 0:
 		var sig : String = _territory_signature()
-		if sig != territory_sig or territory_tex == null:
+		if sig != territory_sig or territory_rect == null:
 			territory_sig = sig
 			_rebuild_territory()
-		draw_texture_rect(territory_tex, Rect2(Vector2.ZERO, Vector2(territory_tex.get_width(), territory_tex.get_height()) * TERRITORY_CELL), false)
 	# Lanes between star systems that trade (heat = recent traffic)
 	for key in lane_heat:
 		var heat : float = lane_heat[key]

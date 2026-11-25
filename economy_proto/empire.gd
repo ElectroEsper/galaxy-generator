@@ -17,6 +17,7 @@ var survey_backlog : int = 0
 var surveys_ordered : int = 0
 var sector_events : int = 0
 var settlements : int = 0
+var customs_collected : float = 0.0
 # Known space: systems this empire has charted (SystemNode -> true)
 var known : Dictionary = {}
 
