@@ -59,6 +59,7 @@ var broke_ticks : int = 0
 var idle_ticks : int = 0
 var upgrades : int = 0
 var utilisation : float = 0.0   # share of voyages that found a profitable lane
+var rr : int = 0
 var marg_rate : float = 0.0    # EMA profit per unit of sailing time on the last (marginal) delivery each tick
 var fill : float = 0.0          # average hold fill on those voyages
 var moved : float = 0.0
@@ -251,7 +252,10 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 	var moved_before : float = moved
 	var last_rate : float = -1.0
 	# Contracts first: deliver inputs that producers have asked for (producer pays the shipping fee).
-	for dest in markets:
+	var n : int = markets.size()
+	rr = (rr + 7) % maxi(n, 1)    # rotate who gets served first, so low-index colonies don't hog the fleet
+	for di in n:
+		var dest : ColonyMarket = markets[(di + rr) % n]
 		if budget <= 0.0:
 			break
 		for req in dest.requests:
@@ -270,7 +274,9 @@ func _run_freight(markets : Array[ColonyMarket]) -> void:
 			if q <= 0.0:
 				continue
 			var fee : float = SHIP_COST * _dist(src, dest, markets) * q
-			budget -= _dist(src, dest, markets) + LOAD_TIME
+			var ctrip : float = _dist(src, dest, markets) + LOAD_TIME
+			budget -= ctrip
+			last_rate = (q * (dest.price[g] - src.price[g]) + fee) / ctrip
 			src.port_used += 1; dest.port_used += 1
 			src.stock[g] -= q; dest.stock[g] += q
 			req["qty"] -= q

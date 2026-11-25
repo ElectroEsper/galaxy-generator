@@ -156,3 +156,12 @@ Diagnostic at tick 400 (`diag_goods.gd`): Ore extracted 498 -> 913, Ore cover 0.
 1200-tick run (`run_halfslot_1200.csv`): pop ~11,200, 98-100 colonies with jobs, Ore ~30, Metal ~36-40, Water ~32-38, Food ~63-75, **Parts still ~74**.
 Parts capacity now exceeds use (414 vs 343) but 63 of 100 colonies are still out of stock: Parts is a *distribution* problem (a few producer colonies, many consumers, port slots / voyage size),
 not production. Next: look at where Parts is made vs consumed and at producer-colony port load.
+
+## Parts distribution diagnosis (`economy_proto/diag_parts.gd`)
+Parts capacity is spread over all 100 colonies (~4 each), not concentrated, and Metal is plentiful (0 stockouts), yet 63 colonies are out of Parts. Findings:
+- **The Parts chain is Ore-limited by arithmetic.** 1 Parts = 2 Metal = 4 Ore. Parts use ~340/tick would need ~1,360 Ore for Parts alone, plus Metal for maintenance; the whole economy extracts ~900 Ore.
+  The Parts price therefore pins at ~2x the Metal price (84 vs 42): producers sit at ~zero margin and idle, which looks like "capacity exists but no stock".
+- Every good has the same `BASE_PRICE` (10) although recipes multiply inputs, so chain goods need scarcity pricing just to break even. Tried per-good base prices (Ore 10, Metal 28, Parts 70, Food 20, Water 6):
+  Parts stockouts 63 -> 23, but Ore stockouts 10 -> 43, Food 70, Water 62 and prices in the hundreds: the Ore wall just moves. Reverted; not a fix on its own.
+- Freight contract order now rotates each tick (no low-index bias) and contract deliveries count toward the fleet's marginal-profit growth check. No visible change in Parts, kept as correctness fixes.
+Real levers: more Ore (mining slots/colonies, richer or more numerous Ore sites, recycling), or less Parts demand (maintenance per facility 0.08, hydroponics Parts 0.1, yield 1 Parts per 2 Metal).
