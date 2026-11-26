@@ -15,7 +15,18 @@ const JOIN_EXHAUSTION := 40.0       # too exhausted to join above this
 const SMALL := 0.5                  # a guarantee protects an empire weaker than this x the threat...
 const SMALL_END := 0.7              # ... and ends once it is this strong (a gap, so it doesn't flip every year)
 const GUARANTEE_MIN_YEARS := 5
-const BETRAYAL_YEARS := 15          # no new pact or guarantee between betrayer and betrayed for this long
+# Trust (per pair, one-way: how much A believes B keeps its word) and reputation (what everyone believes), 0..100
+const TRUST_START := 50.0
+const TRUST_BETRAYED := -40.0       # B abandoned A
+const TRUST_ATTACKED := -30.0       # B attacked A
+const TRUST_HONOURED := 15.0        # B answered A's call to arms
+const TRUST_KEPT := 1.0             # per year a pact or guarantee between them holds
+const REP_BETRAYAL := -15.0
+const REP_WAR_OF_CHOICE := -5.0
+const REP_HONOURED := 5.0
+const REP_RECOVERY := 1.0           # per year, toward 50
+const PACT_TRUST := 40.0            # needed to sign a pact (+ up to 20 for xenophobes)
+const GUARANTEE_TRUST := 30.0
 
 # ---------------------------------------------------------------- Queries
 static func has_pact(sim, a, b) -> bool:
@@ -33,14 +44,14 @@ static func effective_strength(sim, x, attacker) -> float:
 	var s : float = x.strength
 	for y in defenders_of(sim, x):
 		if y != attacker and not has_pact(sim, y, attacker):
-			s += ALLY_WEIGHT * y.strength
+			s += ALLY_WEIGHT * y.strength * clampf(y.reputation / 50.0, 0.2, 1.5)   # a known betrayer deters less
 	return s
 
 # ---------------------------------------------------------------- Acceptance
 ## x accepts a pact from e if it fears someone too (ideally the same empire), doesn't dislike e, and isn't at war with it.
 static func accepts_pact(sim, x, e) -> bool:
 	var r : Dictionary = sim._rel(e, x)
-	if r["opinion"] < -10.0 or not can_ally(sim, e, x):
+	if r["opinion"] < -10.0 or not can_ally(sim, e, x) or reliance(sim, x, e) < PACT_TRUST + 20.0 * Personality.t(x, "xenophobia"):
 		return false
 	if e.main_threat >= 0 and x.threat.get(e.main_threat, 0.0) >= Threat.NOTE_LEVEL:
 		return true
@@ -48,14 +59,30 @@ static func accepts_pact(sim, x, e) -> bool:
 
 ## Protection is almost always welcome, unless the protected empire distrusts the guarantor.
 static func accepts_guarantee(sim, x, e) -> bool:
-	return sim._rel(e, x)["opinion"] >= -20.0 and can_ally(sim, e, x)
+	return sim._rel(e, x)["opinion"] >= -20.0 and can_ally(sim, e, x) and reliance(sim, x, e) >= GUARANTEE_TRUST
 
-## New pacts and guarantees: not with an empire at war (signing would mean joining it), not between enemies, and not
-## within BETRAYAL_YEARS of one abandoning the other.
+## New pacts and guarantees: not with an empire at war (signing would mean joining it).
 static func can_ally(sim, a, b) -> bool:
-	if in_any_war(sim, a) or in_any_war(sim, b):
-		return false
-	return sim.tick_count / 12 >= sim._rel(a, b).get("betrayed_until", 0)
+	return not in_any_war(sim, a) and not in_any_war(sim, b)
+
+# ---------------------------------------------------------------- Trust and reputation
+## How much a trusts b (0..100).
+static func trust(sim, a, b) -> float:
+	return sim._rel(a, b).get("trust", {}).get(a.id, TRUST_START)
+
+static func adjust_trust(sim, a, b, amount : float) -> void:
+	var r : Dictionary = sim._rel(a, b)
+	if not r.has("trust"): r["trust"] = {}
+	r["trust"][a.id] = clampf(trust(sim, a, b) + amount, 0.0, 100.0)
+
+## How far a would rely on b's promises: its own trust where they have history, blended with b's reputation.
+static func reliance(sim, a, b) -> float:
+	return 0.6 * trust(sim, a, b) + 0.4 * b.reputation
+
+static func adjust_reputation(sim, e, amount : float, why : String) -> void:
+	e.reputation = clampf(e.reputation + amount, 0.0, 100.0)
+	if absf(amount) >= 10.0:
+		sim._event("%s's reputation %s to %d (%s)" % [e.name, "rises" if amount > 0 else "falls", e.reputation, why])
 
 static func in_any_war(sim, x) -> bool:
 	return sim.wars.any(func(w): return w["a"] == x or w["b"] == x)
@@ -79,11 +106,14 @@ static func call_to_arms(sim, attacker, defender, war : Dictionary) -> void:
 			chance *= 0.3
 		if randf() < chance:
 			sim._event("%s honours its %s and joins %s against %s" % [y.name, "pact" if pact else "guarantee", defender.name, attacker.name])
+			adjust_trust(sim, defender, y, TRUST_HONOURED)
+			adjust_reputation(sim, y, REP_HONOURED, "stood by %s" % defender.name)
 			Military.declare(sim, y, attacker, war)
 		else:
 			var r : Dictionary = sim._rel(y, defender)
 			r["opinion"] = maxf(-100.0, r["opinion"] - BETRAYAL_OPINION)
-			r["betrayed_until"] = sim.tick_count / 12 + BETRAYAL_YEARS
+			adjust_trust(sim, defender, y, TRUST_BETRAYED)
+			adjust_reputation(sim, y, REP_BETRAYAL, "abandoned %s" % defender.name)
 			if pact:
 				r["pact"] = false
 			else:
@@ -95,12 +125,17 @@ static func call_to_arms(sim, attacker, defender, war : Dictionary) -> void:
 ## protected empire is no longer small, or the guarantor no longer fears its neighbour.
 static func yearly(sim) -> void:
 	var year : int = sim.tick_count / 12
+	for e in sim.empires:
+		e.reputation += clampf(50.0 - e.reputation, -REP_RECOVERY, REP_RECOVERY)
+		for xid in e.guarantees:
+			adjust_trust(sim, sim.empires[xid], e, TRUST_KEPT)
 	for i in sim.empires.size():
 		for j in range(i + 1, sim.empires.size()):
 			var a = sim.empires[i]; var b = sim.empires[j]
 			var r : Dictionary = sim._rel(a, b)
 			if not r.get("pact", false):
 				continue
+			adjust_trust(sim, a, b, TRUST_KEPT); adjust_trust(sim, b, a, TRUST_KEPT)
 			var calm : bool = a.max_threat < LAPSE_THREAT and b.max_threat < LAPSE_THREAT
 			if (calm and year - r.get("pact_year", 0) >= PACT_MIN_YEARS) or r["opinion"] < -30.0:
 				r["pact"] = false

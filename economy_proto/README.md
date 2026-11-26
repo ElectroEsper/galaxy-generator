@@ -418,6 +418,11 @@ shift slightly after ~30 years (year 100 colonies 95/123/84/139 vs 95/124/84/145
 - **Pacts and guarantees** (`alliances.gd`):
   - An empire seeks a defensive pact with another that fears the same empire, or guarantees a small neighbour that sits between it and its main threat.
   - When an empire is attacked, its partners and guarantors are called to arms. Pacts are honoured 60–100% of the time and guarantees 30–90% (by caution, intervention and exhaustion). Refusing breaks the promise and costs 30 opinion.
+- **Trust and reputation:**
+  - **Trust** is per pair and one-way (0–100): does A believe B keeps its word. It falls 40 when B abandons A and 30 when B attacks A. It rises 15 when B answers A's call, and 1 a year for each pact or guarantee kept.
+  - **Reputation** is per empire and seen by all: −15 for a betrayal, −5 for a war of choice, +5 for honouring a call. It recovers 1 a year toward 50.
+  - Pacts need trust (60% own trust, 40% reputation) of 40, plus up to 20 for xenophobes. Guarantees need 30.
+  - Attackers discount an ally's strength by its reputation, so a known betrayer deters less.
   - Allies with no front of their own fight on the defender's front, and make peace when the main war ends.
   - Attackers count 60% of the defender's allies' strength before declaring war.
   - Pacts lapse after 10 years if nobody is afraid any more; guarantees end when the protected empire is no longer small.

@@ -865,7 +865,7 @@ func relation_rows() -> Array:
 	return rows
 
 ## Per-empire metrics, one row per empire (see EMPIRE_HEADER).
-const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps,customs,strength,exhaustion,mil_spent,occupied_by_enemy,at_war,personality,target_strength,main_threat,max_threat"
+const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps,customs,strength,exhaustion,mil_spent,occupied_by_enemy,at_war,personality,target_strength,main_threat,max_threat,reputation"
 func empire_rows() -> Array:
 	var rows : Array = []
 	for e in empires:
@@ -883,7 +883,7 @@ func empire_rows() -> Array:
 			if k.empire == e:
 				nc += 1
 				if k.kind == Corporation.Kind.SURVEYOR: sships += 1 + k.ships
-		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d,%.0f,%.0f,%.1f,%.0f,%d,%d,%s,%.0f,%d,%.2f" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc, e.customs_collected, e.strength, e.exhaustion, e.mil_spent, GalaxyColonies.systems.filter(func(x): return x.owner == e and x.occupier != null).size(), 1 if wars.any(func(w): return w["a"] == e or w["b"] == e) else 0, Personality.label(e).replace(",", ";"), e.target_strength, e.main_threat + 1, e.max_threat])
+		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d,%.0f,%.0f,%.1f,%.0f,%d,%d,%s,%.0f,%d,%.2f,%.0f" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc, e.customs_collected, e.strength, e.exhaustion, e.mil_spent, GalaxyColonies.systems.filter(func(x): return x.owner == e and x.occupier != null).size(), 1 if wars.any(func(w): return w["a"] == e or w["b"] == e) else 0, Personality.label(e).replace(",", ";"), e.target_strength, e.main_threat + 1, e.max_threat, e.reputation])
 	return rows
 
 ## One row of time-series metrics (see METRIC_HEADER).

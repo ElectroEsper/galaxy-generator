@@ -146,6 +146,8 @@ static func declare(sim, a, b, parent = null) -> void:
 	sim.wars.append(w)
 	if parent == null:
 		a.wars_started.append(sim.tick_count / 12)
+		Alliances.adjust_trust(sim, b, a, Alliances.TRUST_ATTACKED)
+		Alliances.adjust_reputation(sim, a, Alliances.REP_WAR_OF_CHOICE, "attacked %s" % b.name)
 		sim._event("WAR: %s declares war on %s (strength %d vs %d)" % [a.name, b.name, a.strength, b.strength])
 		Alliances.call_to_arms(sim, a, b, w)
 	sim.on_system_claimed()   # routes change with stances

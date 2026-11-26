@@ -237,7 +237,8 @@ Each feature in the prototype, with what the port must carry. New rows are added
 | War: strength, fronts, occupation, exhaustion, peace | `military.gd` | strength, exhaustion, wars (start, peaks), occupier per system, truce per pair |
 | Army budget: target strength from smoothed income | `military.gd` | `avg_tax`, `target_strength` |
 | Personality: 7 traits, drift, regime change | `personality.gd` | `traits`, `base_traits`, `stability`, `regime_year`; trait order: aggression, expansion, mercantile, xenophobia, militarism, caution, intervention |
-| Pacts and guarantees | `alliances.gd` | `Relation.pact`, `pact_year`; `Empire.guarantees` (ids); `War.parent` (the war an ally joined) |
+| Trust and reputation | `alliances.gd` | `Relation.trust` as two directed values; `Empire.reputation` |
+| Pacts and guarantees | `alliances.gd` | `Relation.pact`, `pact_year`; `Empire.guarantees` (id -> against, start year); `War.parent` (the war an ally joined) |
 | Threat assessment | `threat.gd` | `threat[]` per empire, `main_threat`, `wars_started` (years), `systems_taken`, `sys_history` (yearly) |
 
 ## 11. Changelog
