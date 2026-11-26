@@ -140,6 +140,7 @@ static func _goals(sim, e, others : Array) -> Array:
 		var partner = null
 		for y in others:
 			if y == t or sim._rel(e, y).get("pact", false) or not sim._rel(e, y)["met"] or not Alliances.can_ally(sim, e, y): continue
+			if Alliances.reliance(sim, e, y) < Alliances.PACT_TRUST: continue          # we won't court a partner we don't trust
 			if y.threat.get(t.id, 0.0) >= Threat.NOTE_LEVEL and (partner == null or y.strength > partner.strength):
 				partner = y
 		if partner != null:
