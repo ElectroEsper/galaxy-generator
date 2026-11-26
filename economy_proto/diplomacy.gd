@@ -11,6 +11,11 @@ const OP_OK := -10.0                 # opinion at which a trade treaty can be di
 const OP_GOOD := 10.0                # opinion at which passage can be discussed
 const REFUSAL_COOLDOWN := 5          # years before re-proposing to an empire that refused
 const MAX_DEPTH := 4
+const STRONGER := 1.3                # strength ratio an empire wants before starting a war
+const RIVAL_BORDER := 15           # a border this long with negative opinion is a rivalry worth fighting over
+const WAR_BORDER := 5                # border segments that make a neighbour's systems worth fighting for
+const PEACE_EXHAUSTION := 50.0       # an empire this exhausted wants out
+const PEACE_COOLDOWN := 2            # years between peace offers to the same enemy
 
 # ---------------------------------------------------------------- Actions
 ## Each action: name, partner, cost, preconditions {fact: bool}, effects {fact: bool}.
@@ -19,18 +24,25 @@ static func _actions(sim, e, others : Array) -> Array:
 	for x in others:
 		var i : int = x.id
 		acts.append({"name": "propose_trade", "x": x, "cost": 1.0,
-			"pre": {"met:%d" % i: true, "op_ok:%d" % i: true, "trade:%d" % i: false}, "eff": {"trade:%d" % i: true}})
+			"pre": {"met:%d" % i: true, "op_ok:%d" % i: true, "trade:%d" % i: false, "war:%d" % i: false}, "eff": {"trade:%d" % i: true}})
 		acts.append({"name": "propose_passage", "x": x, "cost": 1.5,
-			"pre": {"met:%d" % i: true, "op_good:%d" % i: true, "pass:%d" % i: false, "cash": true}, "eff": {"pass:%d" % i: true}})
+			"pre": {"met:%d" % i: true, "op_good:%d" % i: true, "pass:%d" % i: false, "cash": true, "war:%d" % i: false}, "eff": {"pass:%d" % i: true}})
 		acts.append({"name": "send_aid", "x": x, "cost": 3.0,
 			"pre": {"met:%d" % i: true, "op_ok:%d" % i: false, "reach:%d" % i: true, "cash": true}, "eff": {"op_ok:%d" % i: true}})
 		acts.append({"name": "send_aid", "x": x, "cost": 3.0,
 			"pre": {"met:%d" % i: true, "op_ok:%d" % i: true, "op_good:%d" % i: false, "cash": true}, "eff": {"op_good:%d" % i: true}})
+		# War
+		acts.append({"name": "arm", "x": x, "cost": 2.0,
+			"pre": {"met:%d" % i: true, "stronger:%d" % i: false, "arming": false}, "eff": {"stronger:%d" % i: true, "arming": true}})
+		acts.append({"name": "declare_war", "x": x, "cost": 4.0,
+			"pre": {"hostile:%d" % i: true, "stronger:%d" % i: true, "war:%d" % i: false, "tired": false}, "eff": {"war:%d" % i: true}})
+		acts.append({"name": "sue_for_peace", "x": x, "cost": 1.0,
+			"pre": {"war:%d" % i: true}, "eff": {"war:%d" % i: false}})
 	return acts
 
 # ---------------------------------------------------------------- World state
 static func _facts(sim, e, others : Array) -> Dictionary:
-	var f : Dictionary = {"cash": e.treasury >= AID_COST * 2.0}
+	var f : Dictionary = {"cash": e.treasury >= AID_COST * 2.0, "arming": sim.tick_count / 12 < e.arming_until, "tired": e.exhaustion >= 20.0}
 	for x in others:
 		var r : Dictionary = sim._rel(e, x)
 		var i : int = x.id
@@ -40,6 +52,9 @@ static func _facts(sim, e, others : Array) -> Dictionary:
 		f["op_ok:%d" % i] = r["opinion"] >= OP_OK
 		f["op_good:%d" % i] = r["opinion"] >= OP_GOOD
 		f["reach:%d" % i] = r["opinion"] >= OP_OK - AID_GOODWILL * 0.8   # one gesture can bring them round
+		f["hostile:%d" % i] = r["met"] and sim.tick_count / 12 >= r.get("truce_until", 0) and (r["stance"] == "hostile" or r["stance"] == "embargo" or (r["opinion"] < 0.0 and r["border"] >= RIVAL_BORDER))
+		f["stronger:%d" % i] = e.strength > x.strength * STRONGER
+		f["war:%d" % i] = sim.wars.any(func(w): return (w["a"] == e and w["b"] == x) or (w["a"] == x and w["b"] == e))
 	return f
 
 static func _avg_price(sim, e, g : int) -> float:
@@ -81,6 +96,19 @@ static func _goals(sim, e, others : Array) -> Array:
 		var r : Dictionary = sim._rel(e, x)
 		if r["met"] and not r["trade_treaty"] and r["opinion"] >= OP_GOOD:
 			goals.append({"name": "open trade with %s" % x.name, "priority": 0.3, "want": {"trade:%d" % x.id: true}})
+	# War: end a war going badly; deter a stronger hostile neighbour; seize the border from a weaker hostile one.
+	for x in others:
+		var r : Dictionary = sim._rel(e, x)
+		var at_war : bool = sim.wars.any(func(w): return (w["a"] == e and w["b"] == x) or (w["a"] == x and w["b"] == e))
+		if at_war:
+			if e.exhaustion >= PEACE_EXHAUSTION or e.strength < x.strength * 0.8:
+				goals.append({"name": "end the war with %s" % x.name, "priority": 5.0, "want": {"war:%d" % x.id: false}})
+			continue
+		var hostile : bool = r["met"] and (r["stance"] == "hostile" or r["stance"] == "embargo" or (r["opinion"] < 0.0 and r["border"] >= RIVAL_BORDER))
+		if hostile and x.strength > e.strength:
+			goals.append({"name": "deter %s" % x.name, "priority": 1.0 + r["border"] / 10.0, "want": {"stronger:%d" % x.id: true}})
+		if hostile and r["border"] >= WAR_BORDER and sim.tick_count / 12 >= r.get("truce_until", 0) and e.exhaustion < 20.0:
+			goals.append({"name": "seize the border with %s" % x.name, "priority": 0.8 + r["border"] / 15.0, "want": {"war:%d" % x.id: true}})
 	goals.sort_custom(func(a, b): return a["priority"] > b["priority"])
 	return goals
 
@@ -161,7 +189,8 @@ static func _turn(sim, e) -> void:
 			continue
 		var a : Dictionary = p[0]
 		var x = a["x"]
-		if e.refusals.get(x.id, -100) + REFUSAL_COOLDOWN > year and a["name"] != "send_aid":
+		var cool : int = PEACE_COOLDOWN if a["name"] == "sue_for_peace" else REFUSAL_COOLDOWN
+		if e.refusals.get(x.id, -100) + cool > year and a["name"] in ["propose_trade", "propose_passage", "sue_for_peace"]:
 			continue
 		_execute(sim, e, x, a, goal, year)
 		return                                   # one diplomatic initiative per year
@@ -182,6 +211,25 @@ static func _execute(sim, e, x, a : Dictionary, goal : Dictionary, year : int) -
 			else:
 				e.refusals[x.id] = year
 				sim._event("%s refuses a trade treaty with %s" % [x.name, e.name])
+		"arm":
+			e.arming_until = year + Military.ARMING_YEARS
+			sim._event("%s arms (goal: %s; strength %d vs %d)" % [e.name, goal["name"], e.strength, x.strength])
+		"declare_war":
+			Military.declare(sim, e, x)
+		"sue_for_peace":
+			var w = null
+			for ww in sim.wars:
+				if (ww["a"] == e and ww["b"] == x) or (ww["a"] == x and ww["b"] == e): w = ww
+			if w == null:
+				return
+			# The enemy accepts when it's tired too, losing, or holds nothing of ours worth keeping the war going for.
+			var holds : int = sim.all_systems().filter(func(s): return s.owner == e and s.occupier == x).size()
+			if x.exhaustion >= PEACE_EXHAUSTION * 0.6 or x.strength < e.strength or holds > 0 and x.exhaustion >= 25.0:
+				sim._event("%s sues for peace with %s: accepted" % [e.name, x.name])
+				Military.make_peace(sim, w)
+			else:
+				e.refusals[x.id] = year
+				sim._event("%s sues for peace with %s: refused" % [e.name, x.name])
 		"propose_passage":
 			if _accepts_passage(sim, x, e):
 				r["passage"] = true
