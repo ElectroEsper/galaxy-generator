@@ -267,6 +267,8 @@ pub struct World {
     /// Freight lane candidates for the month: per good, the 6 cheapest and 6 dearest markets.
     pub(crate) lanes: (Vec<Vec<usize>>, Vec<Vec<usize>>),
     pub(crate) lanes_tick: Option<u32>,
+    /// This month's candidate lanes per freight-owning empire (None = independents), from plan_lanes.
+    pub(crate) lane_plans: HashMap<Option<usize>, std::sync::Arc<Vec<(usize, usize, usize)>>>,
     /// Profiling: seconds spent per phase (cumulative).
     #[serde(skip)]
     pub prof: std::collections::BTreeMap<&'static str, f64>,
@@ -319,6 +321,7 @@ impl World {
             rescore_after: None,
             lanes: (vec![], vec![]),
             lanes_tick: None,
+            lane_plans: HashMap::new(),
             prof: Default::default(),
             reg_use: None,
             reg_cap: None,
@@ -1247,6 +1250,15 @@ impl World {
 
     /// May a freighter of empire f carry goods from a to b? Trade treaties with foreign empires at either end, and
     /// passage treaties with any other empire whose territory the route crosses.
+    /// A route answer already known (cached), without computing one: for read-only (parallel) planning.
+    pub fn route_known(&self, f: Option<usize>, a: usize, b: usize) -> Option<bool> {
+        let f = match f {
+            Some(f) if self.empires.len() > 1 => f,
+            _ => return Some(true),
+        };
+        self.route_cache.get(&(f, key_of(&self.colonies[a]), key_of(&self.colonies[b]))).copied()
+    }
+
     pub fn route_ok(&mut self, f: Option<usize>, a: usize, b: usize) -> bool {
         let f = match f {
             Some(f) if self.empires.len() > 1 => f,
@@ -1503,6 +1515,7 @@ impl World {
                 self.colonies[f.colony].jobs += 1.0;
             }
         }
+        self.plan_lanes();
         self.lap("reset", &mut t0);
         for ki in self.turn_order(t) {
             let before = self.corps[ki].cash;
@@ -1572,8 +1585,16 @@ impl World {
         self.lap("state", &mut t0);
         self.invalidate_all();
         let ext = self.external_migration;
+        // Market ticks are independent per colony: run them in parallel, then emergence in colony order.
+        {
+            use rayon::prelude::*;
+            let mut is_market = vec![false; self.colonies.len()];
+            for &m in &self.markets {
+                is_market[m] = true;
+            }
+            self.colonies.par_iter_mut().enumerate().filter(|(i, _)| is_market[*i]).for_each(|(_, c)| c.tick(ext));
+        }
         for m in self.markets.clone() {
-            self.colonies[m].tick(ext);
             let alive = self.corps.iter().filter(|k| !k.dead).count();
             if t > 20 && alive < self.cfg.max_corps {
                 self.try_emergence(m);
