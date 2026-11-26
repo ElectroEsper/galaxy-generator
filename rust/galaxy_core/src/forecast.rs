@@ -106,10 +106,13 @@ impl World {
     /// Forecast a war between side_a and side_b (index 0 is each side's leader), from viewer's beliefs.
     /// `viewer_side` is 0 or 1. Third parties may join per rollout when `joiners` is set.
     pub fn forecast_war(&self, viewer: usize, side_a: &[usize], side_b: &[usize], viewer_side: usize, joiners: bool, salt: u64) -> Outlook {
-        let str_a: Vec<f64> = side_a.iter().map(|&x| self.believed_strength(viewer, x)).collect();
-        let str_b: Vec<f64> = side_b.iter().map(|&x| self.believed_strength(viewer, x)).collect();
+        // Members other than the two leaders, and possible joiners, count only as far as their forces can reach the war.
+        let (la, lb) = (side_a[0], side_b[0]);
+        let reach = |y: usize| if y == la || y == lb { 1.0 } else { crate::alliances::reach(self, y, lb, la) };
+        let str_a: Vec<f64> = side_a.iter().map(|&x| self.believed_strength(viewer, x) * reach(x)).collect();
+        let str_b: Vec<f64> = side_b.iter().map(|&x| self.believed_strength(viewer, x) * reach(x)).collect();
         let extra: Vec<(usize, usize, f64, f64)> = if joiners {
-            self.likely_joiners(side_a, side_b).into_iter().map(|(y, s, p)| (y, s, p, self.believed_strength(viewer, y))).collect()
+            self.likely_joiners(side_a, side_b).into_iter().map(|(y, s, p)| (y, s, p, self.believed_strength(viewer, y) * reach(y))).collect()
         } else {
             vec![]
         };

@@ -196,12 +196,16 @@ pub fn land_hungry(w: &World, e: usize) -> bool {
     if mine.len() < 5 {
         return false;
     }
-    // Hungry when little free land is left within reach compared with what it already holds (expansionists want
-    // more room). A strict "none at all" rule left big galaxies at peace for centuries.
+    // Hungry when little free land is left within reach compared with what it already holds, or when settling has
+    // stalled for years (the free land left is not worth settling). Expansionists get hungry sooner.
     let free = w.systems.iter().filter(|s| s.owner.is_none() && mine.iter().any(|&m| dist(w.systems[m].pos, s.pos) <= HUNGER_RANGE)).count();
-    let want = HUNGER_FREE_SHARE * (0.5 + w.empires[e].t(crate::world::TRAIT_EXPANSION));
-    (free as f64) < want * mine.len() as f64
+    let exp = 0.5 + w.empires[e].t(crate::world::TRAIT_EXPANSION);
+    let stalled = (w.year() - w.empires[e].last_expansion) as f64 >= HUNGER_STALL_YEARS / exp;
+    (free as f64) < HUNGER_FREE_SHARE * exp * mine.len() as f64 || stalled
 }
+
+/// Years without a new system after which an empire looks to its neighbours' land (÷ 0.5–1.5 by expansionism).
+pub const HUNGER_STALL_YEARS: f64 = 20.0;
 
 /// Free systems within reach, as a share of systems held, below which an empire feels short of land (×0.5–1.5 by
 /// expansionism).
