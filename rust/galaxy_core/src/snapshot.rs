@@ -67,6 +67,8 @@ pub struct EmpireView {
 /// A fleet or army on the map.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ForceView {
+    /// Stable id, so the view can interpolate a force between months.
+    pub id: u32,
     pub pos: (f64, f64),
     pub owner: u32,
     pub army: bool,
@@ -174,7 +176,7 @@ impl World {
                 None => here,
             };
             let dest = f.path.last().map_or(pos, |&d| self.systems[d].pos);
-            s.forces.push(ForceView { pos, owner: f.owner as u32, army: f.kind == crate::forces::ForceKind::Army, strength: f.strength, dest, in_op: f.op.is_some() });
+            s.forces.push(ForceView { id: f.id as u32, pos, owner: f.owner as u32, army: f.kind == crate::forces::ForceKind::Army, strength: f.strength, dest, in_op: f.op.is_some() });
         }
         s.colonies = self.markets.len() as u32;
         s.corps = self.corps.iter().filter(|k| !k.dead).count() as u32;
