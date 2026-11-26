@@ -12,7 +12,11 @@ static var load_path : String = ""
 ## The player's personality book (JSON), or "" to use the built-in one.
 static func personalities_json() -> String:
 	if FileAccess.file_exists(PERSONALITY_PATH):
-		return FileAccess.get_file_as_string(PERSONALITY_PATH)
+		var src := FileAccess.get_file_as_string(PERSONALITY_PATH)
+		var d = JSON.parse_string(src)
+		# Books from before trait blocks have no "blocks": fall back to the built-in book.
+		if d is Dictionary and d.has("blocks"):
+			return src
 	return ""
 
 static func list_saves() -> PackedStringArray:

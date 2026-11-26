@@ -178,6 +178,16 @@ impl GalaxySim {
         a
     }
 
+    /// The effect names trait blocks can scale.
+    #[func]
+    fn effect_names() -> PackedStringArray {
+        let mut a = PackedStringArray::new();
+        for n in galaxy_core::personality::EFFECTS {
+            a.push(n);
+        }
+        a
+    }
+
     /// "" if the JSON is a valid personality book, otherwise what is wrong with it.
     #[func]
     fn validate_personalities(json: GString) -> GString {

@@ -201,7 +201,7 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
     // The target yields if it expects to lose badly; proud or aggressive empires yield less.
     let ratio = w.empires[a].strength / crate::alliances::effective_strength(w, b, a).max(1.0);
     let eb = &w.empires[b];
-    let spine = 1.3 + 0.6 * (1.0 - eb.t(TRAIT_CAUTION)) + 0.4 * eb.t(TRAIT_AGGRESSION);
+    let spine = (1.3 + 0.6 * (1.0 - eb.t(TRAIT_CAUTION)) + 0.4 * eb.t(TRAIT_AGGRESSION)) * eb.fx(crate::personality::FX_SPINE);
     let desc = describe_all(w, &demand);
     if ratio >= spine {
         let t = format!("{} yields to {}'s ultimatum: {}", w.empires[b].name, w.empires[a].name, desc);
@@ -414,9 +414,11 @@ fn grudge(w: &mut World, loser: usize, winner: usize, greed: f64, lost: &[usize]
             w.empires[loser].revanche.len() - 1
         }
     };
+    let gm = w.empires[loser].fx(crate::personality::FX_GRUDGE);
     {
         let rev = &mut w.empires[loser].revanche[idx];
-        rev.level = (rev.level + REV_BASE * if concession { 0.5 } else { 1.0 } + REV_PER_GREED * (greed - 0.8).max(0.0) + REV_PER_SYSTEM * lost.len() as f64).min(100.0);
+        let gain = (REV_BASE * if concession { 0.5 } else { 1.0 } + REV_PER_GREED * (greed - 0.8).max(0.0) + REV_PER_SYSTEM * lost.len() as f64) * gm;
+        rev.level = (rev.level + gain).min(100.0);
         for s in lost {
             if !rev.claims.contains(s) {
                 rev.claims.push(*s);
@@ -526,7 +528,7 @@ pub fn yearly(w: &mut World) {
                 w.event(t);
             }
             if !bound {
-                let fade = REV_FADE * (1.0 + w.empires[e].t(TRAIT_MERCANTILE));
+                let fade = REV_FADE * (1.0 + w.empires[e].t(TRAIT_MERCANTILE)) * w.empires[e].fx(crate::personality::FX_GRUDGE_FADE);
                 w.empires[e].revanche[i].level -= fade;
             }
             let claims: Vec<usize> = w.empires[e].revanche[i].claims.iter().cloned().filter(|&s| w.systems[s].owner == Some(x)).collect();

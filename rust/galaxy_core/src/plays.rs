@@ -84,6 +84,8 @@ impl World {
             } else {
                 0.0
             };
+            let bk = ey.fx(crate::personality::FX_BACKING);
+            let (chance_a, chance_b) = ((chance_a * bk).min(1.0), (chance_b * bk).min(1.0));
             let r = self.rng.randf();
             let side = if r < chance_b && chance_b >= chance_a {
                 Some(1)
@@ -119,7 +121,7 @@ impl World {
             let age = self.tick - p.start;
             let ratio = self.side_strength(&p, 0) / self.side_strength(&p, 1).max(1.0);
             let eb = &self.empires[p.b];
-            let spine = 1.3 + 0.6 * (1.0 - eb.t(TRAIT_CAUTION)) + 0.4 * eb.t(TRAIT_AGGRESSION);
+            let spine = (1.3 + 0.6 * (1.0 - eb.t(TRAIT_CAUTION)) + 0.4 * eb.t(TRAIT_AGGRESSION)) * eb.fx(crate::personality::FX_SPINE);
             if ratio >= spine {
                 self.resolve_concede(pi, &p.demands.clone(), "concedes");
                 continue;
@@ -196,7 +198,7 @@ impl World {
         let p = self.plays[pi].clone();
         let mediator = (0..self.empires.len())
             .filter(|&y| y != p.a && y != p.b && !p.backers[0].contains(&y) && !p.backers[1].contains(&y) && !self.in_any_war(y))
-            .filter(|&y| self.empires[y].t(TRAIT_INTERVENTION) >= 0.6 && self.rel(y, p.a).met && self.rel(y, p.b).met)
+            .filter(|&y| self.empires[y].t(TRAIT_INTERVENTION) * self.empires[y].fx(crate::personality::FX_MEDIATION) >= 0.6 && self.rel(y, p.a).met && self.rel(y, p.b).met)
             .max_by(|&x, &y| self.empires[x].t(TRAIT_INTERVENTION).partial_cmp(&self.empires[y].t(TRAIT_INTERVENTION)).unwrap());
         let m = match mediator {
             Some(m) => m,
