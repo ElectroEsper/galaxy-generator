@@ -23,6 +23,11 @@ fn main() {
             "colonize" => cfg.colonize = v == "1",
             "ticks" => ticks = v.parse().unwrap_or(600),
             // save=<file>: save after the run; load=<file>: resume a save instead of generating a galaxy
+            // threads=N: worker threads for the parallel phases (results do not depend on it)
+            "threads" => {
+                let n: usize = v.parse().unwrap_or(0);
+                rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("thread pool");
+            }
             "save" => save = Some(v.to_string()),
             "load" => load = Some(v.to_string()),
             // personalities=<file.json>: archetype book (personalities=dump prints the built-in one and exits)

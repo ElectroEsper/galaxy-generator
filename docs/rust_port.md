@@ -307,3 +307,12 @@ Goal: add or change a trait or an archetype without touching sim code.
 - GalaxySim adds `save_game`, `load_game`, `default_personalities`, `trait_names` and `validate_personalities`, and `start()` takes a `personalities` key (JSON).
 - Saves are the whole World in bincode behind a magic header. A save loaded and run on is identical to an uninterrupted run (checked over 50 years).
 - Godot: `main_menu.tscn` is now the main scene: galaxy settings, a personality editor saved to user://personalities.json, and the saves list. In the map view: F5 quicksave, F9 quickload, Ctrl+S new slot, M back to the menu.
+
+### Multi-threading (rayon)
+What runs in parallel, and why the rest doesn't:
+- **Freight lane planning (rule change).** At the start of each month, `plan_lanes` scores every candidate lane (6 cheapest × 6 dearest markets per good) on start-of-month prices. It runs in parallel, one task per freight-owning empire, and keeps the best 40 lanes. During a freighter's turn it re-validates those lanes against live stock, ports and routes, and picks the best live margin. Before, every freighter rebuilt and rescored all lanes on its own turn. Contracts (filling requests posted earlier in the same month) stay sequential, because those requests don't exist at the start of the month.
+- **Market ticks.** Run in parallel per colony. Emergence then runs in colony order after all the ticks, where before it was interleaved (a small rule change).
+- **Stays sequential:** corporation turns (they share stocks and cash), diplomacy and war. Boards (opportunity, outpost, survey) are still built lazily during corp turns; prebuilding them in parallel needs read-only versions of the nearest-colony and frontier caches. That is the next candidate for parallelism.
+- **Determinism:** parallel work writes into per-item slots or collects in order, so results don't depend on the thread count (`threads=1`, 2 and 7 are byte-identical). Save/load still resumes identically.
+- **Speed:** 1,000 systems, 8 empires, 100 years: 10.0 s → 5.5 s. Most of the gain comes from planning once per empire rather than once per freighter. This 2-core machine shows little gain from the threads themselves; a timing run on an 8-core desktop is needed.
+- **CLI:** `threads=N`. The Godot extension uses all cores.

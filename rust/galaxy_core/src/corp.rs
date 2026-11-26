@@ -47,6 +47,9 @@ pub const OUTPOST_SETTLERS: f64 = 20.0;
 pub const OUTPOST_PAYBACK: f64 = 60.0;
 pub const BUILD_MONTHS: i32 = 6;
 
+/// Candidate lanes kept per empire each month.
+pub const LANE_PLAN: usize = 40;
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Kind {
     Extractor,
@@ -655,6 +658,71 @@ impl World {
         ok
     }
 
+    /// Freight margin per unit on lane a->b for good g (after shipping and customs).
+    pub(crate) fn lane_margin(&self, g: usize, a: usize, b: usize) -> f64 {
+        let mut m = self.colonies[b].price[g] - self.colonies[a].price[g] - SHIP_COST * self.lane(a, b);
+        if self.cfg.colonize && self.colonies[a].owner != self.colonies[b].owner {
+            m -= self.tariff_rate(a, b) * self.colonies[b].price[g];
+        }
+        m
+    }
+
+    /// Start of the month: per good, the 6 cheapest and 6 dearest markets, then (in parallel, one task per empire)
+    /// each empire's candidate lanes, best margin first. Reads only; the result does not depend on the thread count.
+    pub(crate) fn plan_lanes(&mut self) {
+        use rayon::prelude::*;
+        let mut sources: Vec<Vec<usize>> = vec![];
+        let mut dests: Vec<Vec<usize>> = vec![];
+        for g in goods::ALL {
+            let cmp = |x: &usize, y: &usize| self.colonies[*x].price[g].partial_cmp(&self.colonies[*y].price[g]).unwrap().then(x.cmp(y));
+            let mut v = self.markets.clone();
+            let k = v.len().min(6);
+            if k > 0 && v.len() > k {
+                v.select_nth_unstable_by(k - 1, cmp);
+            }
+            let mut lo: Vec<usize> = v[..k].to_vec();
+            lo.sort_by(cmp);
+            let mut v = self.markets.clone();
+            if k > 0 && v.len() > k {
+                v.select_nth_unstable_by(k - 1, |x, y| cmp(y, x));
+            }
+            let mut hi: Vec<usize> = v[..k].to_vec();
+            hi.sort_by(|x, y| cmp(y, x));
+            sources.push(lo);
+            dests.push(hi);
+        }
+        let mut owners: Vec<Option<usize>> = self.corps.iter().filter(|k| !k.dead && k.kind == Kind::Freight).map(|k| k.empire).collect();
+        owners.sort();
+        owners.dedup();
+        let me = &*self;
+        let plans: Vec<(Option<usize>, std::sync::Arc<Vec<(usize, usize, usize)>>)> = owners
+            .par_iter()
+            .map(|&fe| {
+                let mut c: Vec<(f64, usize, usize, usize)> = vec![];
+                for g in goods::ALL {
+                    for &a in &sources[g] {
+                        for &b in &dests[g] {
+                            if a == b {
+                                continue;
+                            }
+                            let m = me.lane_margin(g, a, b);
+                            if m <= 0.3 || (me.cfg.colonize && me.route_known(fe, a, b) == Some(false)) {
+                                continue;
+                            }
+                            c.push((m, g, a, b));
+                        }
+                    }
+                }
+                c.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap().then((x.1, x.2, x.3).cmp(&(y.1, y.2, y.3))));
+                c.truncate(LANE_PLAN);
+                (fe, std::sync::Arc::new(c.into_iter().map(|x| (x.1, x.2, x.3)).collect()))
+            })
+            .collect();
+        self.lanes = (sources, dests);
+        self.lanes_tick = Some(self.tick);
+        self.lane_plans = plans.into_iter().collect();
+    }
+
     fn run_freight(&mut self, ki: usize) {
         self.corps[ki].last_moves.clear();
         self.corps[ki].route_memo.clear();
@@ -671,6 +739,7 @@ impl World {
         let rr = self.corps[ki].rr;
         // Request sources: per good, the best-stocked colonies at the start of the run (scanning every colony for every
         // request was the freight hot spot on big maps).
+        let mut tq = std::time::Instant::now();
         let mut by_stock: Vec<Vec<usize>> = vec![];
         for g in goods::ALL {
             let mut v: Vec<usize> = self.markets.iter().cloned().filter(|&m| self.colonies[m].stock[g] >= 8.0).collect();
@@ -678,6 +747,7 @@ impl World {
             v.truncate(16);
             by_stock.push(v);
         }
+        self.lap_pub("    fr_bystock", &mut tq);
         // Contracts first: deliver inputs that producers and builders asked for (the requester pays the fee).
         for di in 0..n {
             if budget <= 0.0 {
@@ -690,6 +760,10 @@ impl World {
                     break;
                 }
                 let req = self.colonies[dest].requests[ri];
+                if req.qty <= 0.0 {
+                    ri += 1;
+                    continue;
+                }
                 let g = req.good;
                 let mut src: Option<usize> = None;
                 for mi in 0..by_stock[g].len() {
@@ -741,57 +815,25 @@ impl World {
                 ri += 1;
             }
         }
-        // Candidate lanes: for each good, the 6 cheapest sources x the 6 dearest destinations.
-        // Prices only change when markets tick (end of month), so the lists are built once a month for every freighter.
-        if self.lanes_tick != Some(self.tick) {
-            let mut sources: Vec<Vec<usize>> = vec![];
-            let mut dests: Vec<Vec<usize>> = vec![];
-            for g in goods::ALL {
-                let cmp = |x: &usize, y: &usize| self.colonies[*x].price[g].partial_cmp(&self.colonies[*y].price[g]).unwrap().then(x.cmp(y));
-                let mut v = self.markets.clone();
-                let k = v.len().min(6);
-                if k > 0 && v.len() > k {
-                    v.select_nth_unstable_by(k - 1, cmp);
-                }
-                let mut lo: Vec<usize> = v[..k].to_vec();
-                lo.sort_by(cmp);
-                let mut v = self.markets.clone();
-                if k > 0 && v.len() > k {
-                    v.select_nth_unstable_by(k - 1, |x, y| cmp(y, x));
-                }
-                let mut hi: Vec<usize> = v[..k].to_vec();
-                hi.sort_by(|x, y| cmp(y, x));
-                sources.push(lo);
-                dests.push(hi);
-            }
-            self.lanes = (sources, dests);
-            self.lanes_tick = Some(self.tick);
-        }
-        let (sources, dests) = self.lanes.clone();
+        self.lap_pub("    fr_contracts", &mut tq);
+        // Lanes: this empire's candidates were planned (in parallel) at the start of the month on start-of-month
+        // prices; here they are re-validated against live stock, ports and routes, best live margin first.
+        let fe = self.corps[ki].empire;
+        let plan = self.lane_plans.get(&fe).cloned().unwrap_or_default();
         while budget > 0.0 {
             let mut best_m = 0.0;
             let mut best: Option<(usize, usize, usize)> = None;
-            for g in goods::ALL {
-                for &a in &sources[g] {
-                    if self.colonies[a].stock[g] < 6.0 || !self.colonies[a].port_free() {
+            for &(g, a, b) in plan.iter() {
+                if self.colonies[a].stock[g] < 6.0 || !self.colonies[a].port_free() || !self.colonies[b].port_free() {
+                    continue;
+                }
+                let m = self.lane_margin(g, a, b);
+                if m > best_m {
+                    if colonize && !self.route_ok_memo(ki, a, b) {
                         continue;
                     }
-                    for &b in &dests[g] {
-                        if a == b || !self.colonies[b].port_free() {
-                            continue;
-                        }
-                        let mut m = self.colonies[b].price[g] - self.colonies[a].price[g] - SHIP_COST * self.lane(a, b);
-                        if colonize && self.colonies[a].owner != self.colonies[b].owner {
-                            m -= self.tariff_rate(a, b) * self.colonies[b].price[g];
-                        }
-                        if m > best_m {
-                            if colonize && !self.route_ok_memo(ki, a, b) {
-                                continue;
-                            }
-                            best_m = m;
-                            best = Some((g, a, b));
-                        }
-                    }
+                    best_m = m;
+                    best = Some((g, a, b));
                 }
             }
             if best_m <= 0.3 {
@@ -819,6 +861,7 @@ impl World {
             done += 1;
             self.corps[ki].last_moves.push(crate::corp::Move { from: a, to: b, good: g, qty: q });
         }
+        self.lap_pub("    fr_lanes", &mut tq);
         let k = &mut self.corps[ki];
         k.utilisation = 0.8 * k.utilisation + 0.2 * (1.0 - budget.max(0.0) / total_budget);
         if done > 0 {
