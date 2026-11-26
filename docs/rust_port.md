@@ -245,6 +245,11 @@ Each feature in the prototype, with what the port must carry. New rows are added
 
 ## 11. Changelog
 
+- 2026-11-26: guaranteed homeworlds (`World::capital_star`, `capital_spots`): in colonization runs each empire's
+  capital star is generated first (a temperate rocky world with Ore >= 3 and Water or Food >= 3, star past the
+  protoplanet age), placed on a ring (uniform galaxy) or spread across the density map (image galaxy). They count
+  toward the system total.
+
 - 2026-11-26: planet classifier (`astro::classify`) and image-driven placement (`astro::PlacementMaps`) ported; the CLI
   loads PNGs (`maps=default` or `maps=<dir>`), the extension loads them through Godot's Image (`density_map`,
   `population_map` keys). CI (`.github/workflows/rust.yml`) builds Linux and Windows and uploads `galaxy_gd.dll`.
