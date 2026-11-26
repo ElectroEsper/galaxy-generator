@@ -29,7 +29,6 @@ pub const DEFENCE_PER_POP: f64 = 0.002;
 pub const MIN_FORCE: f64 = 0.5; // smaller detachments disband into the nearest friendly force
 pub const MAX_OPS: usize = 3; // concurrent operations per empire
 pub const ASSEMBLE_MONTHS: u32 = 6; // an operation whose forces stop moving without assembling is dropped after this
-pub const OP_SUPERIORITY: f64 = 1.3; // wanted local superiority, scaled by the empire's attack ratio
 pub const NEIGHBOURS: usize = 4;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -563,10 +562,16 @@ impl World {
         } else {
             target
         };
-        let ratio = OP_SUPERIORITY * crate::personality::attack_ratio(self, e) / 1.3;
+        // How much to commit: forecast the battle on believed enemy strength (an empire's estimate of an enemy's
+        // forces is off by the same factor as its estimate of that enemy's total strength).
+        let main_enemy = self.systems[target].occupier.or(self.systems[target].owner).filter(|o| enemies.contains(o)).unwrap_or(enemies[0]);
+        let seen = self.believed_strength(e, main_enemy) / self.empires[main_enemy].strength.max(1.0);
+        let enemy_fleet = self.threat_near(target, enemies, Some(ForceKind::Fleet)) * seen;
+        let bonus = if goal == OpGoal::Invade { DEFENDER_BONUS } else { 1.0 };
+        let ratio = self.op_commitment(e, enemy_fleet.max(1.0), bonus, target as u64);
         // At least a fifth of the empire's fleet: token detachments achieve nothing.
         let own_fleet: f64 = self.forces.iter().filter(|f| f.owner == e && f.kind == ForceKind::Fleet).map(|f| f.strength).sum();
-        let fleet_need = (self.threat_near(target, enemies, Some(ForceKind::Fleet)) * ratio).max(own_fleet * 0.2).max(1.0);
+        let fleet_need = (enemy_fleet * ratio).max(own_fleet * 0.2).max(1.0);
         let ground = match goal {
             OpGoal::Invade => SYSTEM_DEFENCE + self.system_pop(target) * DEFENCE_PER_POP + self.local(target, enemies, Some(ForceKind::Army)),
             OpGoal::Liberate => self.local(target, enemies, Some(ForceKind::Army)) + 1.0,

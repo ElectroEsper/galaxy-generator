@@ -342,3 +342,21 @@ Elsewhere:
 - **Battles.** In any system with hostile forces, fleets fight first (Lanchester-style losses; holder ×1.25; first strike ×1.5). Armies won't enter a system holding an enemy fleet unless their own fleet is there. A ground battle needs space control. The defence is the garrison plus fixed defences (15 + 0.002 × pop). Winning occupies the system, or liberates it. Losses add war exhaustion as before. Peace treaties and capitulation are unchanged.
 - **View.** Fleets are triangles and armies squares, in the empire's colour and sized by strength. Forces in an operation show a dashed line to their destination. [F] toggles them.
 - **Determinism.** Thread-count independence and exact save/load hold. Save format v3. With `OPDEBUG=1`, the CLI traces operations.
+
+### Monte Carlo forecasting (`forecast.rs`)
+Before a decision that bets on how a war would go, an empire plays the war out 32 times on a cheap abstract model and decides by the share of rollouts it wins:
+- **Beliefs.** Other empires' strength is seen with an error that depends on acquaintance (pact or trade treaty: ±8%; met: ±20%; stranger: ±40%). The error is fixed per (viewer, target, year).
+- **Joiners.** Third parties join per rollout: the defender's pact partners and guarantors at their call-to-arms chance, the attacker's pact partners at 25%.
+- **Model.** Noisy monthly Lanchester attrition, exhaustion from months and losses, and occupation pressure for the side ahead. A side gives up at its leader's peace threshold. Ten years without a result is a draw.
+- **Risk tolerance.** Comes from the traits (aggression, low caution, and blocks that lower the attack ratio). The win chance wanted to start or join a war runs from 0.75 (careful) to 0.40 (bold).
+
+Where it is used:
+- **Starting a war or crisis** (`go_to_war`): below the threshold, the empire "shelves its plans" (2-year hold).
+- **Joining a war** (`JoinWar`): "stays out of the war (forecast: N% to win)".
+- **Answering a call to arms:** the chance is scaled by 0.4 + p(win).
+- **Suing for peace:** "losing" now means a forecast below 30%, coalitions included.
+- **Pacts:** proposed only if the pact raises the odds against the main threat by 5 points or more.
+- **Guarantees:** offered only if defending the protégé has a 40% or better chance.
+- **Operations:** the commitment is the first rung of a ladder (×1.0 … ×3.0 of the believed enemy fleet) whose battle forecast clears 0.85 − 0.3 × risk tolerance.
+
+Rollouts use their own random streams, hashed from the seed, the month, the viewer and the question, and run in parallel (rayon). The sim's own random numbers are untouched, and results don't depend on the thread count. Cost: about 0.3 s per 100 years at 1,000 systems.

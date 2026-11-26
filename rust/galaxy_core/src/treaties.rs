@@ -170,6 +170,16 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
     if w.in_play(a) || w.in_play(b) {
         return; // one crisis at a time
     }
+    // Forecast first: play the war out on what a believes, likely joiners included.
+    let o = w.forecast_war(a, &[a], &[b], 0, true, 0xDEC1 ^ b as u64);
+    if o.p_win < w.war_threshold(a) {
+        let y = w.year();
+        let t = format!("{} shelves its plans against {} (forecast: {:.0}% to win)", w.empires[a].name, w.empires[b].name, o.p_win * 100.0);
+        w.event(t);
+        let r = w.rel_mut(a, b);
+        r.truce_until = r.truce_until.max(y + 2);
+        return;
+    }
     let goals = choose_goals(w, a, b);
     if w.empires[a].t(TRAIT_AGGRESSION) >= 0.65 && w.empires[a].t(TRAIT_CAUTION) <= 0.4 {
         let why = format!("surprise attack on {}", w.empires[b].name);
