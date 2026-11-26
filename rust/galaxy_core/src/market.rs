@@ -12,7 +12,7 @@ pub const DEATH_RATE: f64 = 0.02;
 pub const EXTRACTOR_SLOT: f64 = 0.5;
 pub const PORT_BASE: i32 = 4;
 pub const PORT_POP_PER_SLOT: f64 = 100.0;
-pub const MAX_EMPIRES: usize = 8;
+pub const MAX_EMPIRES: usize = 32;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Claim {

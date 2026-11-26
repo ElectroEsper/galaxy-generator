@@ -1634,7 +1634,7 @@ impl World {
 
 /// Save files: a magic tag and format version, then the whole World (bincode). Loading resumes exactly where the save
 /// was made, caches and random streams included.
-const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x03";
+const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x04";
 
 impl World {
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {

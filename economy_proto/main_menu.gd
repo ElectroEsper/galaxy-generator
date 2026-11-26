@@ -85,7 +85,7 @@ func _build_main() -> void:
 	g.add_theme_constant_override("h_separation", 16)
 	v.add_child(g)
 	f_systems = _spin(g, "Star systems", 10, 2000, 46, 1)
-	f_empires = _spin(g, "Empires", 1, 8, 4, 1)
+	f_empires = _spin(g, "Empires", 1, 32, 4, 1)
 	f_seed = _spin(g, "Seed", 0, 999999, randi() % 100000, 1)
 	var lm := Label.new(); lm.text = "Galaxy shape"; g.add_child(lm)
 	f_maps = CheckBox.new(); f_maps.text = "Spiral (from images)"; f_maps.button_pressed = true; g.add_child(f_maps)
