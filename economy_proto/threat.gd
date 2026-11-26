@@ -43,7 +43,8 @@ static func score(sim, e, x, year : int) -> float:
 		growth = clampf(float(x.sys_history[-1] - then) / maxf(then, 1.0), 0.0, 2.0)
 	var at_war : bool = sim.wars.any(func(w): return (w["a"] == e and w["b"] == x) or (w["a"] == x and w["b"] == e))
 	var temper : float = 0.5 + (Personality.t(e, "caution") + Personality.t(e, "xenophobia")) * 0.5
-	return 0.5 * strength * proximity * record * (1.0 + growth) * (1.5 if at_war else 1.0) * temper
+	var grudge : float = e.revanche.get(x.id, {}).get("level", 0.0) / 100.0   # a revanchist fixates on its victor
+	return 0.5 * (1.0 + grudge) * strength * proximity * record * (1.0 + growth) * (1.5 if at_war else 1.0) * temper
 
 ## Do e and some other empire both see x as a serious threat? (the basis for pacts and coalitions)
 static func common_threat(sim, e, x) -> bool:
