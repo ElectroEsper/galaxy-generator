@@ -69,15 +69,13 @@ static func _fund(sim, e) -> void:
 	e.month_tax = 0.0
 	# Upkeep
 	if e.strength > 0.0:
-		var cash_need : float = e.strength * UPKEEP_CASH
 		var parts_need : float = e.strength * UPKEEP_PARTS
-		cap.note_use(Goods.PARTS, parts_need)
-		var parts_got : float = minf(cap.stock[Goods.PARTS], parts_need)
-		cap.stock[Goods.PARTS] -= parts_got
-		var cost : float = cash_need + parts_got * cap.price[Goods.PARTS]
+		_note(sim, e, Goods.PARTS, parts_need)
+		var bought : Array = _buy(sim, e, Goods.PARTS, parts_need)
+		var cost : float = e.strength * UPKEEP_CASH + bought[1]
 		e.treasury -= cost
 		e.mil_spent += cost
-		if parts_got < parts_need * 0.99 or e.treasury < 0.0:
+		if bought[0] < parts_need * 0.99 or e.treasury < 0.0:
 			e.strength *= 1.0 - UNPAID_DECAY
 	var target : float = target_strength(sim, e)
 	e.target_strength = target
@@ -87,19 +85,50 @@ static func _fund(sim, e) -> void:
 	if e.strength >= target or e.treasury <= 0.0:
 		return
 	# Build: at most BUILD_RATE of the target per month, and no more than a tenth of the treasury
-	var unit : float = UNIT_CASH + UNIT_METAL * cap.price[Goods.METAL] + UNIT_PARTS * cap.price[Goods.PARTS]
+	var unit_est : float = UNIT_CASH + UNIT_METAL * cap.price[Goods.METAL] + UNIT_PARTS * cap.price[Goods.PARTS]
 	var n : float = minf(target - e.strength, maxf(target * BUILD_RATE, 1.0))
-	n = minf(n, e.treasury * 0.1 / unit)
-	cap.note_use(Goods.METAL, n * UNIT_METAL)
-	cap.note_use(Goods.PARTS, n * UNIT_PARTS)
-	n = minf(n, minf(cap.stock[Goods.METAL] / UNIT_METAL, cap.stock[Goods.PARTS] / UNIT_PARTS))
+	n = minf(n, e.treasury * 0.1 / unit_est)
+	var avail_m : float = _available(sim, e, Goods.METAL); var avail_p : float = _available(sim, e, Goods.PARTS)
+	_note(sim, e, Goods.METAL, n * UNIT_METAL); _note(sim, e, Goods.PARTS, n * UNIT_PARTS)
+	n = minf(n, minf(avail_m / UNIT_METAL, avail_p / UNIT_PARTS))
 	if n <= 0.0:
 		return
-	cap.stock[Goods.METAL] -= n * UNIT_METAL
-	cap.stock[Goods.PARTS] -= n * UNIT_PARTS
-	e.treasury -= n * unit
-	e.mil_spent += n * unit
+	var cost : float = n * UNIT_CASH + _buy(sim, e, Goods.METAL, n * UNIT_METAL)[1] + _buy(sim, e, Goods.PARTS, n * UNIT_PARTS)[1]
+	e.treasury -= cost
+	e.mil_spent += cost
 	e.strength += n
+
+## The empire's own colonies, cheapest first for good g (ties by name, for determinism).
+static func _sources(sim, e, g : int) -> Array:
+	var own : Array = sim._empire_colonies(e).duplicate()
+	own.sort_custom(func(a, b): return a.price[g] < b.price[g] or (a.price[g] == b.price[g] and a.name < b.name))
+	return own
+
+static func _available(sim, e, g : int) -> float:
+	var t : float = 0.0
+	for c in sim._empire_colonies(e): t += c.stock[g]
+	return t
+
+## Register military demand across the empire (spread by population), so prices and producers respond.
+static func _note(sim, e, g : int, qty : float) -> void:
+	var own : Array = sim._empire_colonies(e)
+	var pop : float = 0.0
+	for c in own: pop += c.pop
+	if pop <= 0.0: return
+	for c in own: c.note_use(g, qty * c.pop / pop)
+
+## Buy up to qty of g from the empire's colonies, cheapest first. Returns [bought, cost].
+static func _buy(sim, e, g : int, qty : float) -> Array:
+	var got : float = 0.0
+	var cost : float = 0.0
+	for c in _sources(sim, e, g):
+		if got >= qty: break
+		var take : float = minf(c.stock[g], qty - got)
+		if take <= 0.0: continue
+		c.stock[g] -= take
+		got += take
+		cost += take * c.price[g]
+	return [got, cost]
 
 # ---------------------------------------------------------------- War
 ## Systems of `side` within border range of the enemy's (its front), excluding ones the enemy already occupies.
