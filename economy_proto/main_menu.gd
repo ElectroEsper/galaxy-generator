@@ -44,6 +44,13 @@ var b_fx : Dictionary = {}       # effect -> SpinBox
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# Unticked checkboxes are nearly invisible on the dark background with the default theme.
+	var th := Theme.new()
+	th.set_icon("unchecked", "CheckBox", _box_icon(false))
+	th.set_icon("checked", "CheckBox", _box_icon(true))
+	th.set_icon("unchecked_disabled", "CheckBox", _box_icon(false, 0.35))
+	th.set_icon("checked_disabled", "CheckBox", _box_icon(true, 0.35))
+	theme = th
 	var bg := ColorRect.new()
 	bg.color = Color(0.04, 0.05, 0.08)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -64,6 +71,24 @@ func _ready() -> void:
 	_build_main()
 	_build_editor()
 	_show_editor(false)
+
+## A clearly visible checkbox: light outlined square, filled blue with a tick when checked.
+func _box_icon(on : bool, alpha : float = 1.0) -> ImageTexture:
+	var n := 16
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var edge := Color(0.85, 0.87, 0.92, alpha)
+	var fill := Color(0.35, 0.7, 1.0, alpha)
+	for i in n:
+		for k in 2:
+			img.set_pixel(i, k, edge); img.set_pixel(i, n - 1 - k, edge)
+			img.set_pixel(k, i, edge); img.set_pixel(n - 1 - k, i, edge)
+	if on:
+		img.fill_rect(Rect2i(3, 3, n - 6, n - 6), fill)
+		for t in range(4, 12):   # tick
+			var y : int = (t + 4) if t < 7 else (17 - t)
+			img.set_pixel(t, y, Color(1, 1, 1, alpha)); img.set_pixel(t, y - 1, Color(1, 1, 1, alpha))
+	return ImageTexture.create_from_image(img)
 
 # ---------------------------------------------------------------- main panel
 func _build_main() -> void:

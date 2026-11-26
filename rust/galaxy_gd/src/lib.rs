@@ -26,7 +26,7 @@ struct Shared {
     detail: Mutex<Option<galaxy_core::snapshot::SystemDetail>>,
     events: Mutex<Vec<String>>,
     /// Save request (absolute path) and its result ("" = ok, otherwise the error).
-    save_req: Mutex<Option<String>>,
+    save_req: Mutex<Option<(bool, String)>>, // (is telemetry export, absolute path)
     save_result: Mutex<Option<String>>,
 }
 
@@ -138,7 +138,23 @@ impl GalaxySim {
         }
         let abs = godot::classes::ProjectSettings::singleton().globalize_path(&path).to_string();
         *self.shared.save_result.lock().unwrap() = None;
-        *self.shared.save_req.lock().unwrap() = Some(abs);
+        self.request_io(false, abs)
+    }
+
+    /// Export the playthrough's history (CSV files + summary.json) into a folder (res://, user:// or a plain path).
+    /// Works while paused. Returns "" or an error.
+    #[func]
+    fn export_telemetry(&mut self, dir: GString) -> GString {
+        if self.thread.is_none() {
+            return "no galaxy running".into();
+        }
+        let abs = godot::classes::ProjectSettings::singleton().globalize_path(&dir).to_string();
+        *self.shared.save_result.lock().unwrap() = None;
+        self.request_io(true, abs)
+    }
+
+    fn request_io(&mut self, telemetry: bool, abs: String) -> GString {
+        *self.shared.save_req.lock().unwrap() = Some((telemetry, abs));
         let t0 = Instant::now();
         while t0.elapsed() < Duration::from_secs(10) {
             if let Some(r) = self.shared.save_result.lock().unwrap().take() {
@@ -366,8 +382,8 @@ impl GalaxySim {
             let mut budget = 0.0f64;
             let mut last = Instant::now();
             while !shared.stop.load(Ordering::SeqCst) {
-                if let Some(p) = shared.save_req.lock().unwrap().take() {
-                    let r = w.save_file(&p).err().unwrap_or_default();
+                if let Some((telemetry, p)) = shared.save_req.lock().unwrap().take() {
+                    let r = if telemetry { w.export_telemetry(&p) } else { w.save_file(&p) }.err().unwrap_or_default();
                     *shared.save_result.lock().unwrap() = Some(r);
                 }
                 let req = shared.detail_req.swap(-1, Ordering::SeqCst);

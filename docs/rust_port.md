@@ -380,3 +380,22 @@ Balance (10 seeds × 200 years, 46 systems, 6 empires):
   - A 1,000-system galaxy with 8 empires has no war in 200 years, because free land never runs out.
 
   These look like legitimate outcomes, but if wars should come sooner on big maps, the land-hunger rule (no unclaimed system nearby) is the lever.
+
+### Telemetry (`telemetry.rs`)
+The World keeps a running history of the playthrough. It's saved with the game, so a loaded save keeps its past. It exports to a folder:
+
+| File | Contents |
+|---|---|
+| `galaxy.csv` | Galaxy-wide economy every 4 months (population, prices, corporations, facilities, ships, treasury…). |
+| `empires.csv` | Every empire every year: colonies, systems, population, treasury, strength, fleet, army, operations, exhaustion, occupation, personality, main threat, reputation. |
+| `relations.csv` | Every pair of empires every 5 years: opinion, stance, border, trade, treaties, pact, guarantees. |
+| `events.csv` | Every event with tick, year, month and a category (war, crisis, diplomacy, politics, economy, other). |
+| `wars.csv` | One row per war: start, end, length, attacker, defender, everyone on each side, goals, how it ended (terms, separate peaces). |
+| `summary.json` | Settings, length, wars, events by category, final standings. |
+
+How to export:
+- **Godot:** the "Export stats" button writes to `user://telemetry/<date-time>/` and opens the folder.
+- **GDExtension:** `GalaxySim.export_telemetry(dir)`.
+- **CLI:** `telemetry=<dir>`.
+
+Save format v5.

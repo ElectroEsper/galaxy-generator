@@ -299,6 +299,15 @@ func _to_menu() -> void:
 	sim.stop(); GameSetup.config = {}
 	get_tree().change_scene_to_file("res://economy_proto/main_menu.tscn")
 
+## Telemetry: galaxy, empire and relation history, every event, every war, and a summary, as CSV files.
+func _export_stats() -> void:
+	var dir := "user://telemetry/%s" % Time.get_datetime_string_from_system().replace(":", "-")
+	var err : String = sim.export_telemetry(dir)
+	if err != "":
+		_note("Export failed: " + err); return
+	_note("Stats exported to " + ProjectSettings.globalize_path(dir))
+	OS.shell_open(ProjectSettings.globalize_path(dir))
+
 func _save_new() -> void:
 	_save("%s/%s.sav" % [GameSetup.SAVE_DIR, Time.get_datetime_string_from_system().replace(":", "-")])
 
@@ -551,6 +560,7 @@ func _build_ui() -> void:
 	_button(tb, "Quicksave", "[F5]", func(): _save(GameSetup.QUICKSAVE))
 	_button(tb, "Quickload", "[F9]", func(): _load(GameSetup.QUICKSAVE))
 	_button(tb, "Save as...", "New save slot  [Ctrl+S]", _save_new)
+	_button(tb, "Export stats", "Export this playthrough's history (CSV + summary) to a folder and open it", _export_stats)
 	_button(tb, "Help", "Controls and map legend  [H]", func(): help_panel.visible = not help_panel.visible)
 	_button(tb, "Menu", "Back to the main menu  [M]", _to_menu)
 
