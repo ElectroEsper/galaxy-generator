@@ -10,7 +10,7 @@ uniform float radius = 70.0;
 uniform float border_px = 2.0;
 uniform float fill_alpha = 0.13;
 uniform float border_alpha = 0.75;
-uniform vec4 colors[8];
+uniform vec4 colors[32];
 uniform vec2 origin = vec2(0.0);   // map position of the rect's top-left corner
 
 varying vec2 map_pos;
@@ -20,20 +20,20 @@ void vertex() {
 }
 
 void fragment() {
-	float near[8];
-	for (int e = 0; e < 8; e++) near[e] = 1e9;
+	float near[32];
+	for (int e = 0; e < 32; e++) near[e] = 1e9;
 	for (int i = 0; i < count; i++) {
 		vec4 s = texelFetch(systems, ivec2(i, 0), 0);
-		int e = int(s.z + 0.5) % 8;
+		int e = int(s.z + 0.5) % 32;
 		near[e] = min(near[e], distance(map_pos, s.xy));
 	}
 	int owner = -1;
 	float best = 1e9;
-	for (int e = 0; e < 8; e++) {
+	for (int e = 0; e < 32; e++) {
 		if (near[e] < best) { best = near[e]; owner = e; }
 	}
 	float second = 1e9;
-	for (int e = 0; e < 8; e++) {
+	for (int e = 0; e < 32; e++) {
 		if (e != owner) second = min(second, near[e]);
 	}
 	if (owner < 0 || best > radius) {

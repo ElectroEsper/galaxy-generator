@@ -69,6 +69,7 @@ var lbl_date : Label
 var btn_pause : Button
 var lbl_speed : Label
 var empire_box : VBoxContainer
+var empire_scroll : ScrollContainer
 var empire_rows : Array = []     # [button, swatch, label, war label, bar]
 var log_text : RichTextLabel
 var sys_panel : PanelContainer
@@ -299,8 +300,14 @@ func _to_menu() -> void:
 func _save_new() -> void:
 	_save("%s/%s.sav" % [GameSetup.SAVE_DIR, Time.get_datetime_string_from_system().replace(":", "-")])
 
+## The first 8 empires use hand-picked colours; later ones get evenly spread hues (golden-ratio steps).
 func _empire_color(i : int) -> Color:
-	return EMPIRE_COLORS[i % EMPIRE_COLORS.size()] if i >= 0 else Color(0.55, 0.55, 0.6)
+	if i < 0:
+		return Color(0.55, 0.55, 0.6)
+	if i < EMPIRE_COLORS.size():
+		return EMPIRE_COLORS[i]
+	var k := i - EMPIRE_COLORS.size()
+	return Color.from_hsv(fmod(0.07 + k * 0.618034, 1.0), 0.45 + 0.2 * (k % 2), 0.95 - 0.12 * ((k / 2) % 2))
 
 func _rebuild_territory(sys : PackedFloat32Array) -> void:
 	if territory_rect == null:
@@ -310,7 +317,7 @@ func _rebuild_territory(sys : PackedFloat32Array) -> void:
 		var mat := ShaderMaterial.new()
 		mat.shader = load("res://economy_proto/territory.gdshader")
 		var cols : Array = []
-		for i in 8: cols.append(_empire_color(i))
+		for i in 32: cols.append(_empire_color(i))
 		mat.set_shader_parameter("colors", cols)
 		mat.set_shader_parameter("radius", TERRITORY_RADIUS)
 		territory_rect.material = mat
@@ -553,9 +560,15 @@ func _build_ui() -> void:
 	left.add_child(lv)
 	var lt := Label.new(); lt.text = "Empires  (click for details)"; lt.modulate = Color(0.8, 0.8, 0.8)
 	lv.add_child(lt)
+	# Scrolls when there are more empires than fit above the event log.
+	empire_scroll = ScrollContainer.new()
+	empire_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	empire_scroll.custom_minimum_size = Vector2(LEFT_W - 16, 0)
+	lv.add_child(empire_scroll)
 	empire_box = VBoxContainer.new()
 	empire_box.add_theme_constant_override("separation", 2)
-	lv.add_child(empire_box)
+	empire_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	empire_scroll.add_child(empire_box)
 
 	# --- Bottom-left: event log with filter
 	var logp := _panel(root)
@@ -700,6 +713,8 @@ func _update_ui(new_events : bool) -> void:
 		h.add_child(bar)
 		empire_box.add_child(b)
 		empire_rows.append([b, l1, l2, bar])
+	var avail : float = get_viewport_rect().size.y - 46.0 - LOG_H - 50.0
+	empire_scroll.custom_minimum_size.y = minf(emps.size() * 32.0, avail)
 	for i in emps.size():
 		var e : Dictionary = emps[i]
 		var row : Array = empire_rows[i]
