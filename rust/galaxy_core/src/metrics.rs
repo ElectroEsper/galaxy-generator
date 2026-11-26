@@ -101,7 +101,7 @@ impl World {
                 self.tick, e.id, own.len(), sys.len(), pop, fac, e.known.iter().filter(|&&k| k).count(), surveyed, sships, e.treasury, e.tax_collected,
                 e.state_colonies, e.sector_events, corps.len(), e.customs_collected, e.strength, e.exhaustion, e.mil_spent,
                 self.systems.iter().filter(|s| s.owner == Some(e.id) && s.occupier.is_some()).count(), self.in_any_war(e.id) as i32,
-                crate::personality::label(self, e.id), e.target_strength, e.main_threat.map_or(0, |t| t + 1), e.max_threat, e.reputation
+                format!("\"{}\"", crate::personality::label(self, e.id).replace('"', "'")), e.target_strength, e.main_threat.map_or(0, |t| t + 1), e.max_threat, e.reputation
             ));
         }
         rows
