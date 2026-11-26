@@ -51,7 +51,7 @@ var selected : int = -1          # system shown in the info panel
 var detail : Dictionary = {}
 var sel_empire : int = -1        # empire shown in the empire panel
 const SPEEDS : Array = [1.0, 3.0, 6.0, 24.0, 96.0]
-const ZOOM_MIN := 0.3
+const ZOOM_MIN := 0.04
 const ZOOM_MAX := 6.0
 const PAN_KEYS_SPEED := 700.0
 const LEFT_W := 250.0
@@ -305,7 +305,6 @@ func _empire_color(i : int) -> Color:
 func _rebuild_territory(sys : PackedFloat32Array) -> void:
 	if territory_rect == null:
 		territory_rect = ColorRect.new()
-		territory_rect.size = Vector2(4000, 4000)
 		territory_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		territory_rect.show_behind_parent = true
 		var mat := ShaderMaterial.new()
@@ -316,6 +315,13 @@ func _rebuild_territory(sys : PackedFloat32Array) -> void:
 		mat.set_shader_parameter("radius", TERRITORY_RADIUS)
 		territory_rect.material = mat
 		add_child(territory_rect)
+	# Cover every system (plus the territory radius), wherever the galaxy sits in map coordinates.
+	var bounds := Rect2(Vector2(sys[0], sys[1]), Vector2.ZERO)
+	for i in range(0, sys.size(), SYS_STRIDE):
+		bounds = bounds.expand(Vector2(sys[i], sys[i + 1]))
+	bounds = bounds.grow(TERRITORY_RADIUS + 4.0)
+	territory_rect.position = bounds.position
+	territory_rect.size = bounds.size
 	var claimed : Array = []
 	for i in range(0, sys.size(), SYS_STRIDE):
 		if sys[i + 2] >= 0.0:
@@ -326,6 +332,7 @@ func _rebuild_territory(sys : PackedFloat32Array) -> void:
 	var mat : ShaderMaterial = territory_rect.material
 	mat.set_shader_parameter("systems", ImageTexture.create_from_image(img))
 	mat.set_shader_parameter("count", claimed.size())
+	mat.set_shader_parameter("origin", bounds.position)
 
 func _draw() -> void:
 	if snap.is_empty():
@@ -376,7 +383,7 @@ func _draw() -> void:
 		elif sys[i + 4] > 0.5 and at_war:
 			for k in 12:
 				draw_arc(p, r + 4.0, k * TAU / 12.0, k * TAU / 12.0 + TAU / 24.0, 4, Color(1.0, 0.25, 0.2, 0.9), 2.0)
-		if show_labels and settled > 0:
+		if show_labels and settled > 0 and scale.x >= 0.45:   # unreadable when zoomed far out
 			draw_string(font, p + Vector2(-r, -r - 4.0), "%s %d/%d" % [names[i / SYS_STRIDE], settled, int(sys[i + 6])], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.75))
 	if sel_empire >= 0 and sel_empire < emps.size():
 		var c : Vector2 = emps[sel_empire]["capital"]

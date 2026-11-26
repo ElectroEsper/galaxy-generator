@@ -11,11 +11,12 @@ uniform float border_px = 2.0;
 uniform float fill_alpha = 0.13;
 uniform float border_alpha = 0.75;
 uniform vec4 colors[8];
+uniform vec2 origin = vec2(0.0);   // map position of the rect's top-left corner
 
 varying vec2 map_pos;
 
 void vertex() {
-	map_pos = VERTEX;   // the rect sits at the map origin, so local coordinates are map coordinates
+	map_pos = VERTEX + origin;   // the rect is sized and placed to cover the whole galaxy
 }
 
 void fragment() {
