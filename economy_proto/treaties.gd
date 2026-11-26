@@ -141,6 +141,10 @@ static func go_to_war(sim, a, b) -> void:
 		sim._event("%s yields to %s's ultimatum: %s" % [b.name, a.name, describe_all(demand)])
 		_apply(sim, demand, a, b, total(sim, demand), true)
 		Alliances.adjust_reputation(sim, a, -3.0, "ultimatum to %s" % b.name)
+		# A concession buys a truce, and stiffens the victim: it won't yield as easily next time (appeasement fatigue)
+		sim._rel(a, b)["truce_until"] = sim.tick_count / 12 + Military.TRUCE_YEARS
+		Personality._shift(sim, b, "caution", -0.1)
+		Personality._shift(sim, b, "aggression", 0.05)
 	else:
 		sim._event("%s rejects %s's ultimatum (%s)" % [b.name, a.name, describe_all(demand)])
 		Military.declare(sim, a, b, null, goals)

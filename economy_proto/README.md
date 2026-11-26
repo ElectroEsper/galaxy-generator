@@ -426,3 +426,9 @@ shift slightly after ~30 years (year 100 colonies 95/123/84/139 vs 95/124/84/145
   - Allies with no front of their own fight on the defender's front, and make peace when the main war ends.
   - Attackers count 60% of the defender's allies' strength before declaring war.
   - Pacts lapse after 10 years if nobody is afraid any more; guarantees end when the protected empire is no longer small.
+- **Treaties and revanchism** (`treaties.gd`):
+  - **Going to war:** an attacker names its war goals (systems, reparations, open market, demilitarisation, humiliation) and pays reputation for their value. Reckless empires strike without warning: a 3-month first-strike edge and extra reputation cost. Others send an ultimatum with one demand; a target that expects to lose badly yields, which buys a truce and makes it less willing to yield again.
+  - **War score:** occupations, strength balance and exhaustion gap.
+  - **Peace terms:** the side ahead demands terms worth up to its score, raised by its aggression. The other side accepts, counters by dropping the costliest terms, or fights on. A collapsing empire takes whatever is demanded.
+  - **Greed:** terms beyond the score cost the winner reputation and feed the loser's grudge and claims.
+  - **Revanchists:** see their victor as their main threat, strike when it is at war elsewhere, repudiate imposed terms when it is distracted (at a reputation cost), radicalise while paying reparations, and slowly forgive.
