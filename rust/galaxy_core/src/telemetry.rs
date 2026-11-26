@@ -12,7 +12,7 @@
 use crate::world::World;
 use serde::{Deserialize, Serialize};
 
-pub const EMPIRE_EXTRA_HEADER: &str = ",fleet,army,operations";
+pub const EMPIRE_EXTRA_HEADER: &str = ",fleet,army,operations,tech_extraction,tech_agriculture,tech_industry,tech_habitation,tech_military,tech_logistics";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct WarRecord {
@@ -45,7 +45,7 @@ pub fn category(text: &str) -> &'static str {
         "crisis"
     } else if has(&["pact", "guarantee", "treaty", "passage", "embargo", "stays out", "shelves", "refuses", "First contact", "opinion", "friendly", "hostile", "neutral", "threat", " arms ", "deter"]) {
         "diplomacy"
-    } else if has(&["REGIME", "reputation", "adopts", "personality"]) {
+    } else if has(&["REGIME", "reputation", "adopts", "personality", "advances in"]) {
         "politics"
     } else if has(&["corporation", "colony", "Colony", "settle", "founded", "bankrupt", "survey", "shortage", "price"]) {
         "economy"
@@ -77,7 +77,8 @@ impl World {
                     let fleet: f64 = self.forces.iter().filter(|f| f.owner == e && f.kind == crate::forces::ForceKind::Fleet).map(|f| f.strength).sum();
                     let army: f64 = self.forces.iter().filter(|f| f.owner == e && f.kind == crate::forces::ForceKind::Army).map(|f| f.strength).sum();
                     let ops = self.ops.iter().filter(|o| o.empire == e).count();
-                    self.telemetry.empires.push(format!("{},{:.0},{:.0},{}", r, fleet, army, ops));
+                    let t = self.empires[e].tech;
+                    self.telemetry.empires.push(format!("{},{:.0},{:.0},{},{},{},{},{},{},{}", r, fleet, army, ops, t[0], t[1], t[2], t[3], t[4], t[5]));
                 }
             }
             if t % 60 == 0 {
@@ -177,6 +178,7 @@ impl World {
                     "treasury": self.empires[e].treasury.round(),
                     "strength": self.empires[e].strength.round(),
                     "reputation": self.empires[e].reputation.round(),
+                    "tech": crate::tech::FIELDS.iter().zip(self.empires[e].tech.iter()).map(|(f, l)| (f.to_string(), *l)).collect::<std::collections::BTreeMap<_, _>>(),
                     "at_war": self.in_any_war(e),
                 })
             })

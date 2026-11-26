@@ -808,6 +808,13 @@ func _update_empire_panel() -> void:
 	t += "Systems %d    Colonies %d    Population %s\n" % [e["systems"], e["colonies"], _short(e["pop"])]
 	t += "Treasury %s    Reputation %d\n" % [_short(e["treasury"]), e["reputation"]]
 	t += "Fleet %d    Army %d    Operations %d\n" % [e.get("fleet", 0.0), e.get("army", 0.0), e.get("operations", 0)]
+	if e.has("tech"):
+		var tl : PackedInt32Array = e["tech"]
+		var names := ["Extraction", "Agriculture", "Industry", "Habitation", "Military", "Logistics"]
+		var parts : PackedStringArray = []
+		for i in mini(tl.size(), names.size()):
+			parts.append("%s %d" % [names[i], tl[i]])
+		t += "[color=#9cc8ff]Technology:[/color] %s\n" % ", ".join(parts)
 	if e["at_war_with"].size() > 0:
 		t += "\n[color=#ff8a80]At war with %s[/color]   exhaustion %d / 100\n" % [", ".join(e["at_war_with"]), e["exhaustion"]]
 	else:

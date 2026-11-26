@@ -166,6 +166,9 @@ pub struct Empire {
     // Diplomacy, threat, alliances, treaties
     pub refusals: HashMap<usize, i64>,
     pub threat: [f64; MAX_EMPIRES],
+    /// Technology levels and accumulated research per field (tech.rs).
+    pub tech: [u32; crate::tech::NT],
+    pub research: [f64; crate::tech::NT],
     pub max_threat: f64,
     pub main_threat: Option<usize>,
     pub wars_started: Vec<i64>,
@@ -630,6 +633,8 @@ impl World {
                 arming_until: 0,
                 refusals: HashMap::new(),
                 threat: [0.0; MAX_EMPIRES],
+                tech: [0; crate::tech::NT],
+                research: [0.0; crate::tech::NT],
                 max_threat: 0.0,
                 main_threat: None,
                 wars_started: vec![],
@@ -1599,6 +1604,7 @@ impl World {
                 self.lap("relations", &mut t0);
                 self.mark_fronts();
                 self.military_monthly();
+                self.research_monthly();
                 self.plays_monthly();
                 self.occupation_effects();
                 self.lap("military", &mut t0);
@@ -1656,7 +1662,7 @@ impl World {
 
 /// Save files: a magic tag and format version, then the whole World (bincode). Loading resumes exactly where the save
 /// was made, caches and random streams included.
-const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x07";
+const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x09";
 
 impl World {
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {

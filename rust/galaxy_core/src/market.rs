@@ -46,6 +46,9 @@ pub struct Colony {
     pub richness_own: Rich,
     /// For a settled body: the empire whose knowledge IS its richness (its surveys feed extraction directly).
     pub rich_from: Option<usize>,
+    /// Technology multipliers from the owner (tech.rs): output per good, and the population ceiling.
+    pub tech_mult: [f64; N],
+    pub pop_mult: f64,
     pub stock: PerGood,
     pub price: PerGood,
     pub use_: PerGood,
@@ -81,6 +84,8 @@ impl Colony {
             port_used: 0,
             richness_own: rich,
             rich_from: None,
+            tech_mult: [1.0; N],
+            pop_mult: 1.0,
             stock: [40.0; N],
             price: [BASE_PRICE; N],
             use_: [0.1; N],
@@ -155,7 +160,7 @@ impl Colony {
     }
 
     pub fn target_pop(&self) -> f64 {
-        (BASE_SELF_POP + self.jobs * JOBS_PER_FACILITY).min(self.max_pop)
+        (BASE_SELF_POP + self.jobs * JOBS_PER_FACILITY).min(self.max_pop * self.pop_mult)
     }
 
     pub fn workforce_gap(&self) -> f64 {
@@ -201,11 +206,12 @@ impl Colony {
         if self.growth_enabled {
             let need = self.pop_demand(FOOD).max(0.001);
             let fed = (self.stock[FOOD] / (need * 3.0)).clamp(0.0, 1.0);
-            self.pop += self.pop * BIRTH_RATE * fed * (1.0 - self.pop / self.max_pop) - self.pop * DEATH_RATE * (1.0 - fed);
+            let ceiling = self.max_pop * self.pop_mult;
+            self.pop += self.pop * BIRTH_RATE * fed * (1.0 - self.pop / ceiling) - self.pop * DEATH_RATE * (1.0 - fed);
             if !external_migration {
                 self.pop += (self.target_pop() - self.pop).max(0.0) * 0.02;
             }
-            self.pop = self.pop.clamp(5.0, self.max_pop);
+            self.pop = self.pop.clamp(5.0, ceiling);
         } else {
             self.pop += (self.target_pop() - self.pop) * 0.02;
         }

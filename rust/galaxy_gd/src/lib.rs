@@ -326,6 +326,11 @@ impl GalaxySim {
             put(&mut ed, "fleet", e.fleet);
             put(&mut ed, "army", e.army);
             put(&mut ed, "operations", e.operations as i64);
+            let mut tl = PackedInt32Array::new();
+            for &l in &e.tech {
+                tl.push(l as i32);
+            }
+            put(&mut ed, "tech", tl);
             let mut ww = PackedStringArray::new();
             for x in &e.at_war_with {
                 ww.push(&GString::from(x.as_str()));
