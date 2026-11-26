@@ -282,8 +282,9 @@ fn goals(w: &World, e: usize) -> Vec<Goal> {
             let wi = w.war_index(w.war_between(e, x).unwrap()).unwrap();
             let war = &w.wars[wi];
             let side = war.side_of(e).unwrap();
-            let sum = |v: &Vec<usize>| v.iter().map(|&m| w.empires[m].strength).sum::<f64>();
-            let losing = sum(&war.sides[side]) < sum(&war.sides[1 - side]) * 0.8;
+            // Losing by forecast: play the war out from here on what we believe (coalitions included).
+            let (mine, theirs) = (war.sides[side].clone(), war.sides[1 - side].clone());
+            let losing = w.forecast_war(e, &mine, &theirs, 0, false, 0x9EACE ^ x as u64).p_win < 0.3;
             if em.exhaustion >= peace_exhaustion(w, e) || losing {
                 out.push(Goal { name: format!("end the war with {}", w.empires[x].name), priority: 5.0, want: vec![(key(F::War, x), false)] });
             }
@@ -466,6 +467,17 @@ impl World {
                 if let Some(wi) = self.wars.iter().position(|w| w.side_of(x).is_some() && w.side_of(e).is_none()) {
                     let id = self.wars[wi].id;
                     let side = 1 - self.wars[wi].side_of(x).unwrap();
+                    // Forecast the war with us in it: only join a side we expect to win with.
+                    let mut mine = self.wars[wi].sides[side].clone();
+                    mine.push(e);
+                    let theirs = self.wars[wi].sides[1 - side].clone();
+                    let o = self.forecast_war(e, &mine, &theirs, 0, false, 0x101E ^ x as u64);
+                    if o.p_win < self.war_threshold(e) {
+                        let t = format!("{} stays out of the war against {} (forecast: {:.0}% to win)", en, xn, o.p_win * 100.0);
+                        self.event(t);
+                        self.empires[e].refusals.insert(x, year);
+                        return;
+                    }
                     let (rep, why) = if side == 1 { (2.0, "a coalition against the aggressor") } else { (crate::alliances::REP_WAR_OF_CHOICE, "to share the spoils") };
                     let reason = format!("{} (goal: {})", why, goal.name);
                     self.join_war(id, e, side, &reason);
@@ -474,6 +486,16 @@ impl World {
                 }
             }
             Act::ProposePact => {
+                // Worth it only if the pact improves our odds against our main threat by forecast.
+                if let Some(t) = self.empires[e].main_threat {
+                    if t != x {
+                        let alone = self.forecast_war(e, &[t], &[e], 1, false, 0xA1 ^ t as u64).p_win;
+                        let with = self.forecast_war(e, &[t], &[e, x], 1, false, 0xA2 ^ t as u64).p_win;
+                        if with - alone < 0.05 {
+                            return;
+                        }
+                    }
+                }
                 if crate::alliances::accepts_pact(self, x, e) {
                     let r = self.rel_mut(e, x);
                     r.pact = true;
@@ -486,6 +508,12 @@ impl World {
                 }
             }
             Act::OfferGuarantee => {
+                // Only guarantee what we expect to be able to defend.
+                if let Some(t) = self.empires[e].main_threat {
+                    if t != x && self.forecast_war(e, &[t], &[x, e], 1, false, 0x6A ^ x as u64).p_win < 0.4 {
+                        return;
+                    }
+                }
                 if crate::alliances::accepts_guarantee(self, x, e) {
                     let against = self.empires[e].main_threat;
                     self.empires[e].guarantees.push((x, against, year));

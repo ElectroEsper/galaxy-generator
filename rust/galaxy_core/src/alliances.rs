@@ -102,6 +102,14 @@ pub fn call_to_arms(w: &mut World, attacker: usize, defender: usize, war_id: usi
         let pact = has_pact(w, y, defender);
         let mut chance = if pact { 0.6 + 0.4 * (1.0 - w.empires[y].t(TRAIT_CAUTION)) } else { 0.3 + 0.6 * w.empires[y].t(TRAIT_INTERVENTION) };
         chance = (chance * w.empires[y].fx(crate::personality::FX_CALL_TO_ARMS)).min(1.0);
+        // A hopeless war is harder to honour: scale by the forecast of the defenders' side with us in it.
+        if let Some(wi) = w.war_index(war_id) {
+            let mut mine = w.wars[wi].sides[1].clone();
+            mine.push(y);
+            let theirs = w.wars[wi].sides[0].clone();
+            let p = w.forecast_war(y, &mine, &theirs, 0, false, 0xCA11 ^ defender as u64).p_win;
+            chance *= (0.4 + p).min(1.0);
+        }
         if w.empires[y].exhaustion > JOIN_EXHAUSTION {
             chance *= 0.3;
         }
