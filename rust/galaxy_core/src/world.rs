@@ -248,6 +248,8 @@ pub struct World {
     pub treasury: f64,
     pub tax_collected: f64,
     pub external_migration: bool,
+    /// Homeworlds generated up front, one per empire (colonization runs).
+    pub forced_capitals: Vec<usize>,
     /// Bumped whenever a colony is founded or changes hands (positions never change, so nearest-colony answers only
     /// go stale then).
     pub colony_gen: u64,
@@ -300,6 +302,7 @@ impl World {
             treasury: 0.0,
             tax_collected: 0.0,
             external_migration: false,
+            forced_capitals: vec![],
             colony_gen: 1,
             loss_gen: 1,
             rescore_after: None,
@@ -338,26 +341,36 @@ impl World {
     fn generate_galaxy(&mut self) {
         let star_count = self.cfg.systems;
         let scale = if star_count > 0 { (star_count as f64 / 46.0).sqrt() } else { 1.0 };
-        // With maps: sample star pixels up front (systems mode) or generously (planets mode, stops when enough bodies).
         let maps = self.cfg.maps.clone();
+        let mut star_idx = 0;
+        // Guaranteed homeworlds first (colonization runs): one capital star per empire, spread apart.
+        if self.cfg.colonize {
+            let n = self.cfg.empires.clamp(1, MAX_EMPIRES);
+            let spots = self.capital_spots(n, scale);
+            for pos in spots {
+                let (star, best) = self.capital_star();
+                let ids = self.add_star(&star, pos, star_idx, true);
+                self.forced_capitals.push(ids[best]);
+                star_idx += 1;
+            }
+        }
+        // The rest of the galaxy. With maps: star pixels sampled up front (systems mode) or generously (planets mode).
         let pixels = match &maps {
             Some(m) => m.sample(&mut self.rng, if star_count > 0 { star_count } else { self.cfg.planets.max(8) * 2 }),
             None => vec![],
         };
-        let mut star_idx = 0;
+        let mut pi = 0;
         while (star_count > 0 && star_idx < star_count) || (star_count == 0 && self.colonies.len() < self.cfg.planets) {
             let (star, pos) = match &maps {
                 Some(m) => {
-                    if star_idx >= pixels.len() {
+                    if pi >= pixels.len() {
                         break;
                     }
-                    let (px, py) = pixels[star_idx];
+                    let (px, py) = pixels[pi];
+                    pi += 1;
                     let pop = m.population(&mut self.rng, px, py);
                     let star = Star::generate(&mut self.rng, &[(pop, 1.0)]);
-                    // Square maps: one radius for both axes, so the galaxy keeps its shape.
-                    let u = px as f64 / m.width as f64 * 2.0 - 1.0;
-                    let v = py as f64 / m.height as f64 * 2.0 - 1.0;
-                    (star, (VIEW_CENTER.0 + u * MAP_RADIUS * scale, VIEW_CENTER.1 + v * MAP_RADIUS * scale))
+                    (star, Self::map_pos(m, px, py, scale))
                 }
                 None => {
                     let star = Star::generate(&mut self.rng, &DEFAULT_POP_WEIGHTS);
@@ -366,44 +379,126 @@ impl World {
                     (star, (VIEW_CENTER.0 + a.cos() * r * VIEW_RADIUS.0 * scale, VIEW_CENTER.1 + a.sin() * r * VIEW_RADIUS.1 * scale))
                 }
             };
-            let sid = self.systems.len();
-            if !star.planets.is_empty() {
-                self.systems.push(StarSystem { id: sid, name: format!("S{}", star_idx), pos, class: star.class, bodies: vec![], known: true, owner: None, occupier: None, at_front: false });
-            }
-            for p in &star.planets {
-                if star_count == 0 && self.colonies.len() >= self.cfg.planets {
-                    break;
-                }
-                let mut rich = Rich::default();
-                if p.ore >= 1.0 {
-                    rich.set(ORE, p.ore / 5.0);
-                }
-                if p.water >= 1.0 {
-                    rich.set(WATER, p.water / 5.0);
-                }
-                if p.edibles >= 1.0 {
-                    rich.set(FOOD, p.edibles / 5.0 * self.cfg.food_mult);
-                }
-                let ceiling = (120.0 + p.mass * 120.0 + 250.0 * p.life_stage as f64).clamp(120.0, 800.0);
-                let pop = self.rng.range(40.0, 90.0);
-                let id = self.colonies.len();
-                let mut c = Colony::new(id, format!("S{}.{}", star_idx, id), pop, rich, ceiling);
-                let habitable = if (250.0..=340.0).contains(&p.temperature_raw) { 3.0 } else { 0.0 };
-                let score = if p.btype != BaseType::Normal || star.age < PROTOPLANET_AGE { 0.0 } else { p.ore + p.edibles * 1.5 + habitable };
-                c.site_score = score + c.max_pop / 200.0;
-                c.pos = pos;
-                c.system = Some(sid);
-                c.body_radius = p.radius.min(30.0);
-                c.label = p.label().to_string();
-                if p.btype != BaseType::Normal {
-                    c.max_pop = if p.btype == BaseType::Belt { 100.0 } else { 80.0 };
-                    c.pop = c.pop.min(c.max_pop * 0.5);
-                }
-                self.systems[sid].bodies.push(id);
-                self.colonies.push(c);
-            }
+            self.add_star(&star, pos, star_idx, false);
             star_idx += 1;
         }
+    }
+
+    /// Square maps: one radius for both axes, so the galaxy keeps its shape.
+    fn map_pos(m: &crate::astro::PlacementMaps, px: usize, py: usize, scale: f64) -> (f64, f64) {
+        let u = px as f64 / m.width as f64 * 2.0 - 1.0;
+        let v = py as f64 / m.height as f64 * 2.0 - 1.0;
+        (VIEW_CENTER.0 + u * MAP_RADIUS * scale, VIEW_CENTER.1 + v * MAP_RADIUS * scale)
+    }
+
+    /// Where the homeworlds go: evenly around a ring on a uniform galaxy; on an image galaxy, spots drawn from the
+    /// density map and picked greedily to be as far from each other as possible.
+    fn capital_spots(&mut self, n: usize, scale: f64) -> Vec<(f64, f64)> {
+        match self.cfg.maps.clone() {
+            Some(m) => {
+                let cands: Vec<(f64, f64)> = m.sample(&mut self.rng, 300).into_iter().map(|(x, y)| Self::map_pos(&m, x, y, scale)).collect();
+                let mut out: Vec<(f64, f64)> = vec![];
+                for _ in 0..n {
+                    let pick = if out.is_empty() {
+                        cands[self.rng.below(cands.len().max(1))]
+                    } else {
+                        *cands
+                            .iter()
+                            .max_by(|a, b| {
+                                let da = out.iter().map(|o| dist(**a, *o)).fold(f64::INFINITY, f64::min);
+                                let db = out.iter().map(|o| dist(**b, *o)).fold(f64::INFINITY, f64::min);
+                                da.partial_cmp(&db).unwrap()
+                            })
+                            .unwrap()
+                    };
+                    out.push(pick);
+                }
+                out
+            }
+            None => {
+                let r = if n == 1 { 0.0 } else { 0.62 };
+                let a0 = self.rng.randf() * std::f64::consts::TAU;
+                (0..n)
+                    .map(|i| {
+                        let a = a0 + std::f64::consts::TAU * i as f64 / n as f64;
+                        (VIEW_CENTER.0 + a.cos() * r * VIEW_RADIUS.0 * scale, VIEW_CENTER.1 + a.sin() * r * VIEW_RADIUS.1 * scale)
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// Roll stars until one has a proper homeworld: a temperate rocky world with good Ore and Water or Food, past
+    /// the protoplanet age. Returns the star and the index of that planet among its bodies.
+    fn capital_star(&mut self) -> (Star, usize) {
+        for attempt in 0..2000 {
+            let star = Star::generate(&mut self.rng, &DEFAULT_POP_WEIGHTS);
+            if star.age < PROTOPLANET_AGE {
+                continue;
+            }
+            let relaxed = attempt >= 1000; // very unlikely: settle for any world with Ore and Water or Food
+            let mut best: Option<(usize, f64)> = None;
+            for (i, p) in star.planets.iter().enumerate() {
+                if p.btype != BaseType::Normal {
+                    continue;
+                }
+                let temperate = (250.0..=340.0).contains(&p.temperature_raw);
+                let ok = if relaxed { p.ore >= 1.0 && (p.water >= 1.0 || p.edibles >= 1.0) } else { temperate && p.ore >= 3.0 && (p.water >= 3.0 || p.edibles >= 3.0) };
+                let score = p.ore + p.edibles * 1.5 + p.water + p.mass;
+                if ok && best.map_or(true, |b| score > b.1) {
+                    best = Some((i, score));
+                }
+            }
+            if let Some((i, _)) = best {
+                return (star, i);
+            }
+        }
+        panic!("no homeworld found in 2000 stars");
+    }
+
+    /// Add a star system and its bodies as colonies; returns the new colony ids in body order.
+    fn add_star(&mut self, star: &Star, pos: (f64, f64), star_idx: usize, capital: bool) -> Vec<usize> {
+        let star_count = self.cfg.systems;
+        let sid = self.systems.len();
+        let mut ids = vec![];
+        if star.planets.is_empty() {
+            return ids;
+        }
+        self.systems.push(StarSystem { id: sid, name: format!("S{}", star_idx), pos, class: star.class, bodies: vec![], known: true, owner: None, occupier: None, at_front: false });
+        for p in &star.planets {
+            if star_count == 0 && self.colonies.len() >= self.cfg.planets && !capital {
+                break;
+            }
+            let mut rich = Rich::default();
+            if p.ore >= 1.0 {
+                rich.set(ORE, p.ore / 5.0);
+            }
+            if p.water >= 1.0 {
+                rich.set(WATER, p.water / 5.0);
+            }
+            if p.edibles >= 1.0 {
+                rich.set(FOOD, p.edibles / 5.0 * self.cfg.food_mult);
+            }
+            let ceiling = (120.0 + p.mass * 120.0 + 250.0 * p.life_stage as f64).clamp(120.0, 800.0);
+            let pop = self.rng.range(40.0, 90.0);
+            let id = self.colonies.len();
+            let mut c = Colony::new(id, format!("S{}.{}", star_idx, id), pop, rich, ceiling);
+            let habitable = if (250.0..=340.0).contains(&p.temperature_raw) { 3.0 } else { 0.0 };
+            let score = if p.btype != BaseType::Normal || star.age < PROTOPLANET_AGE { 0.0 } else { p.ore + p.edibles * 1.5 + habitable };
+            c.site_score = score + c.max_pop / 200.0;
+            c.pos = pos;
+            c.system = Some(sid);
+            c.body_radius = p.radius.min(30.0);
+            c.label = p.label().to_string();
+            if p.btype != BaseType::Normal {
+                c.max_pop = if p.btype == BaseType::Belt { 100.0 } else { 80.0 };
+                c.pop = c.pop.min(c.max_pop * 0.5);
+            }
+            self.systems[sid].bodies.push(id);
+            self.colonies.push(c);
+            ids.push(id);
+        }
+        ids
     }
 
     fn setup_colonization(&mut self) {
@@ -421,7 +516,10 @@ impl World {
             .collect();
         let best_v = value.iter().cloned().fold(-1.0, f64::max);
         let mut capitals: Vec<usize> = vec![];
-        for i in 0..n {
+        if self.forced_capitals.len() >= n {
+            capitals = self.forced_capitals[..n].to_vec(); // the guaranteed homeworlds
+        }
+        for i in capitals.len()..n {
             // Strict first (a good homeworld in a system of its own), then relaxed, so small or harsh galaxies still
             // get every capital instead of failing.
             let mut pick = None;
