@@ -29,6 +29,15 @@ var paused : bool = false
 var speed_mult : float = 1.0
 var show_ships : bool = true
 var show_labels : bool = true
+# The sim runs on its own thread so a slow month never freezes the window. The map (this node) is redrawn only when the
+# main thread can take sim_lock between two months; ships live on their own layer and animate every frame regardless.
+var sim_thread : Thread = null
+var sim_lock : Mutex = Mutex.new()
+var ship_lock : Mutex = Mutex.new()
+var running : bool = true
+var want_draw : bool = false
+var map_locked : bool = false
+var ship_layer : Node2D = null
 var tps_ticks : int = 0
 var tps_time : float = 0.0
 var tps : float = 0.0
@@ -48,13 +57,54 @@ func _ready() -> void:
 	sim.max_corps = 60
 	sim.colonize = true
 	add_child(sim)
+	remove_child(sim)   # set up, then taken out of the scene tree so its own thread may drive it (and emit its signals)
 	sim.shipment_made.connect(_on_shipment)
+	ship_layer = Node2D.new()
+	ship_layer.draw.connect(_draw_ships)
+	add_child(ship_layer)
+	sim_thread = Thread.new()
+	sim_thread.start(_sim_loop)
+
+func _exit_tree() -> void:
+	running = false
+	if sim_thread != null:
+		sim_thread.wait_to_finish()
+	sim.free()
+
+## Sim thread: advances months at the requested pace (TICKS_PER_SECOND x speed), or as fast as it can when months are slow.
+func _sim_loop() -> void:
+	var last : int = Time.get_ticks_usec()
+	var budget : float = 0.0
+	while running:
+		var now : int = Time.get_ticks_usec()
+		var dt : float = (now - last) / 1000000.0
+		last = now
+		if paused:
+			budget = 0.0
+			OS.delay_msec(10)
+			continue
+		budget = minf(budget + dt * TICKS_PER_SECOND * speed_mult, 2.0)   # never build a backlog of more than 2 months
+		if budget < 1.0:
+			OS.delay_msec(2)
+			continue
+		budget -= 1.0
+		sim_lock.lock()
+		sim.step()
+		for k in lane_heat.keys():
+			lane_heat[k] = maxf(0.0, lane_heat[k] - 0.05)
+		sim_lock.unlock()
+		tps_ticks += 1
+		var waited : int = 0
+		while want_draw and waited < 30 and running:   # let the map redraw between months
+			OS.delay_msec(1); waited += 1
 
 func _on_shipment(a : ColonyMarket, b : ColonyMarket, good : int, qty : float) -> void:
 	var s := Ship.new()
 	s.from_pos = a.position; s.to_pos = b.position; s.good = good; s.qty = qty
+	ship_lock.lock()
 	if show_ships and ships.size() < MAX_SHIPS:
 		ships.append(s)
+	ship_lock.unlock()
 	if a.system == null or b.system == null or a.system == b.system:
 		return
 	var na : String = a.system.name; var nb : String = b.system.name
@@ -73,25 +123,21 @@ func _unhandled_key_input(e : InputEvent) -> void:
 			KEY_L: show_labels = not show_labels
 
 func _process(delta : float) -> void:
+	tps_time += delta
+	if tps_time >= 1.0:
+		tps = tps_ticks / tps_time; tps_ticks = 0; tps_time = 0.0
 	if not paused:
-		accum += delta * TICKS_PER_SECOND * speed_mult
-		var t0 : int = Time.get_ticks_msec()
-		while accum >= 1.0:
-			accum -= 1.0
-			sim.step()
-			tps_ticks += 1
-			for k in lane_heat.keys():
-				lane_heat[k] = maxf(0.0, lane_heat[k] - 0.05)
-			if Time.get_ticks_msec() - t0 > SIM_BUDGET_MS:
-				accum = minf(accum, 1.0)   # behind schedule: drop the backlog rather than stall
-				break
-		tps_time += delta
-		if tps_time >= 1.0:
-			tps = tps_ticks / tps_time; tps_ticks = 0; tps_time = 0.0
-		for s in ships:
-			s.travelled += SHIP_SPEED * delta * speed_mult
-		ships = ships.filter(func(s): return s.travelled < s.length())
-	queue_redraw()
+		ship_lock.lock()
+		for sh in ships:
+			sh.travelled += SHIP_SPEED * delta * speed_mult
+		ships = ships.filter(func(sh): return sh.travelled < sh.length())
+		ship_lock.unlock()
+	ship_layer.queue_redraw()
+	want_draw = true
+	if not map_locked and sim_lock.try_lock():      # released at the end of _draw (same frame, main thread)
+		map_locked = true
+		want_draw = false
+		queue_redraw()
 
 func _shortage(c : ColonyMarket) -> float:
 	var p : float = (c.price[Goods.FOOD] + c.price[Goods.PARTS]) / (2.0 * ColonyMarket.BASE_PRICE)
@@ -131,6 +177,13 @@ func _rebuild_territory() -> void:
 	mat.set_shader_parameter("count", claimed.size())
 
 func _draw() -> void:
+	if not map_locked:   # a redraw the engine asked for on its own: wait for the sim to finish its month
+		sim_lock.lock()
+	map_locked = false
+	_draw_map()
+	sim_lock.unlock()   # taken in _process (or just above)
+
+func _draw_map() -> void:
 	var font : Font = ThemeDB.fallback_font
 	var markets : Array[ColonyMarket] = sim.markets
 	var sys_pos : Dictionary = {}
@@ -189,13 +242,6 @@ func _draw() -> void:
 	for w in sim.wars:
 		if w["a"].capital and w["b"].capital:
 			draw_dashed_line(w["a"].capital.position, w["b"].capital.position, Color(1.0, 0.2, 0.15, 0.8), 2.0, 10.0)
-	# Ships
-	for s in ships:
-		var dir : Vector2 = (s.to_pos - s.from_pos).normalized()
-		var pos : Vector2 = s.from_pos + dir * s.travelled
-		var size : float = 5.0 + minf(s.qty, 20.0) * 0.25
-		var pts := PackedVector2Array([pos + dir * size * 1.4, pos + dir.rotated(2.5) * size, pos + dir.rotated(-2.5) * size])
-		draw_colored_polygon(pts, GOOD_COLORS[s.good])
 	# HUD
 	var kinds : Dictionary = {}
 	var cash_total : float = 0.0
@@ -229,3 +275,13 @@ func _war_note(e) -> String:
 	if foes.is_empty():
 		return ""
 	return "   AT WAR with %s, exhaustion %d" % [", ".join(foes), e.exhaustion]
+
+func _draw_ships() -> void:
+	ship_lock.lock()
+	for sh in ships:
+		var dir : Vector2 = (sh.to_pos - sh.from_pos).normalized()
+		var pos : Vector2 = sh.from_pos + dir * sh.travelled
+		var size : float = 5.0 + minf(sh.qty, 20.0) * 0.25
+		var pts := PackedVector2Array([pos + dir * size * 1.4, pos + dir.rotated(2.5) * size, pos + dir.rotated(-2.5) * size])
+		ship_layer.draw_colored_polygon(pts, GOOD_COLORS[sh.good])
+	ship_lock.unlock()
