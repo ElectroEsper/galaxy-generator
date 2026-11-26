@@ -95,6 +95,12 @@ fn main() {
         w.export_telemetry(&dir).unwrap_or_else(|e| panic!("telemetry {}: {}", dir, e));
         println!("INFO,telemetry={}", dir);
     }
+    if std::env::var("SAVESIZE").is_ok() {
+        let tel = bincode::serialized_size(&w.telemetry).unwrap_or(0);
+        let ev = bincode::serialized_size(&w.events).unwrap_or(0);
+        let all = bincode::serialized_size(&w).unwrap_or(0);
+        println!("INFO,save_bytes={},telemetry={},events={}", all, tel, ev);
+    }
     if let Some(p) = save {
         w.save_file(&p).unwrap_or_else(|e| panic!("save {}: {}", p, e));
         println!("INFO,saved={},bytes={}", p, std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0));

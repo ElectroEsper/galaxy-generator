@@ -93,6 +93,7 @@ dependencies = [
 name = "galaxy_cli"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "galaxy_core",
  "png",
  "rayon",
