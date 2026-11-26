@@ -29,8 +29,9 @@ var map_position : Vector2 = Vector2.ZERO   # galaxy-map position (set by whoeve
 func _ready() -> void:
 	pass # Replace with function body.
 
-func init_solar_system():
-	pop = select_population()
+## pop_weights: population weights for this star's spot on the galaxy map (empty = the default weights).
+func init_solar_system(pop_weights : Dictionary = {}):
+	pop = select_population(pop_weights) if not pop_weights.is_empty() else select_population()
 	set_star_specs_debug()
 	pre_set_orbit_slots()
 	set_orbit_slots()
