@@ -137,6 +137,7 @@ roll per pixel then a shuffle. The two images must have the same size.
 | `personality.gd` | `core::personality` | traits, weights, drift, event shifts, regime change |
 | `threat.gd` | `core::threat` | threat scores, main threat, common threats |
 | `alliances.gd` | `core::alliances` | pacts, guarantees, call to arms, effective strength, lapsing |
+| (planned) | `core::wargame` | Monte Carlo rollouts of the abstract war model to price war, peace and alliance decisions; runs on beliefs (noisy, personality-biased estimates), own RNG stream per rollout seeded from (tick, empire, candidate), rollouts in parallel with `rayon` |
 | `run_headless_csv.gd` | `galaxy_cli` | argument parsing, output |
 | `economy_view.gd` | stays GDScript | reads `SimNode.snapshot()` instead of live objects |
 
@@ -241,6 +242,8 @@ Each feature in the prototype, with what the port must carry. New rows are added
 
 ## 11. Changelog
 
+- 2026-11-25: planned `core::wargame` (after multi-party wars). Keep the war model a pure function of a small
+  `WarState` so rollouts can clone it cheaply.
 - 2026-11-25: added pacts and guarantees (`core::alliances`). Wars gain a `parent` link: an ally's war joins the
   original one, fights on its front when it has none of its own, and ends with it. Store wars in a slot map so the
   link survives removals.
