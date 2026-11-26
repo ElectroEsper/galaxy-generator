@@ -621,7 +621,9 @@ impl World {
             OpGoal::Defend => "defend",
         };
         let t = format!("OPERATION: {} moves to {} {} ({:.0} ships, {:.0} troops)", self.empires[e].name, what, self.systems[target].name, self.force_index(fleet).map_or(0.0, |i| self.forces[i].strength), army.and_then(|a| self.force_index(a)).map_or(0.0, |i| self.forces[i].strength));
-        self.event(t);
+        if goal != OpGoal::Defend {
+            self.event(t);
+        }
         self.ops.push(Operation { id, empire: e, war, goal, target, staging, fleet: Some(fleet), army, steps, start: self.tick, step_start: self.tick, assembled: false });
     }
 
@@ -697,7 +699,9 @@ impl World {
                 f.op = None;
             }
         }
-        if !why.is_empty() {
+        // A defence that succeeded within a couple of months was a passing scare: not worth a log line.
+        let quiet = op.goal == OpGoal::Defend && self.tick - op.start <= 2;
+        if !why.is_empty() && !quiet {
             let t = format!("{}'s operation against {} ends: {}", self.empires[op.empire].name, self.systems[op.target].name, why);
             self.event(t);
         }
@@ -720,7 +724,7 @@ impl World {
         let taken = match op.goal {
             OpGoal::Invade => self.systems[op.target].occupier == Some(op.empire),
             OpGoal::Liberate => self.systems[op.target].occupier.is_none(),
-            OpGoal::Defend => space,
+            OpGoal::Defend => space && self.local(op.target, enemies, None) <= 0.0,
         };
         let mut f = [false; NFACT];
         f[Fact::Assembled as usize] = op.assembled || assembled || fleet_at || army_at;
@@ -915,7 +919,14 @@ impl World {
             let (fa, fd) = (fleet(att, self), fleet(1 - att, self));
             let army = |side: usize, me: &World| -> f64 { here.iter().filter(|&&i| me.forces.get(i).map_or(false, |f| f.kind == ForceKind::Army && w.sides[side].contains(&f.owner))).map(|&i| me.forces[i].strength).sum() };
             let a_att = army(att, self);
-            if a_att <= 0.0 || fd > 0.0 || fa <= 0.0 && fd > 0.0 {
+            if a_att > 0.0 && fd > 0.0 && fa <= 0.0 {
+                // Stranded invaders under a hostile sky: the defenders' fleet bombards them.
+                let mut loss = [0.0; 2];
+                loss[att] = BATTLE_RATE * fd;
+                self.apply_losses(&here, &w, ForceKind::Army, [army(0, self), army(1, self)], loss);
+                continue;
+            }
+            if a_att <= 0.0 || fd > 0.0 {
                 continue;
             }
             let own_holder = self.systems[s].owner;

@@ -43,8 +43,10 @@ pub enum F {
     War,
     /// There is a war involving this empire that we could join against it.
     CanJoin,
+    /// Close enough in strength that a war could go either way (the forecast decides).
+    Viable,
 }
-const NF: usize = 17;
+const NF: usize = 18;
 const GLOBAL: usize = MAX_EMPIRES; // partner slot for global facts
 
 fn key(f: F, partner: usize) -> usize {
@@ -109,6 +111,7 @@ fn facts(w: &World, e: usize) -> State {
         f[key(F::Hostile, x)] = r.met && truce_over && (matches!(r.stance, crate::world::Stance::Hostile | crate::world::Stance::Embargo) || (r.opinion < 0.0 && r.border >= RIVAL_BORDER));
         f[key(F::Covet, x)] = hungry && r.met && r.border >= HUNGER_BORDER && truce_over;
         f[key(F::Stronger, x)] = em.strength > crate::alliances::effective_strength(w, x, e) * attack_ratio(w, e);
+        f[key(F::Viable, x)] = em.strength > crate::alliances::effective_strength(w, x, e) * 0.85;
         f[key(F::Pact, x)] = r.pact;
         f[key(F::Opportunity, x)] = crate::treaties::opportunity(w, e, x);
         f[key(F::Guar, x)] = em.guarantees_(x);
@@ -134,6 +137,8 @@ fn actions(w: &World, e: usize) -> Vec<Action> {
         add(Act::Arm, 2.0, vec![(k(F::Met), true), (k(F::Stronger), false), (g(F::Arming), false)], vec![(k(F::Stronger), true), (g(F::Arming), true)]);
         add(Act::DeclareWar, 4.0 + 12.0 * (1.0 - aggr), vec![(k(F::Hostile), true), (k(F::Stronger), true), (k(F::War), false), (g(F::Tired), false)], vec![(k(F::War), true)]);
         add(Act::DeclareWar, 5.0 + 12.0 * (1.0 - aggr), vec![(k(F::Covet), true), (k(F::Stronger), true), (k(F::War), false), (g(F::Tired), false)], vec![(k(F::War), true)]);
+        // Land hunger with no clear edge: a gamble, left to the forecast (dearer, so a clear edge is preferred).
+        add(Act::DeclareWar, 9.0 + 12.0 * (1.0 - aggr), vec![(k(F::Covet), true), (k(F::Viable), true), (k(F::War), false), (g(F::Tired), false)], vec![(k(F::War), true)]);
         add(Act::DeclareWar, 3.0, vec![(k(F::Opportunity), true), (k(F::War), false), (g(F::Tired), false)], vec![(k(F::War), true)]);
         add(Act::ProposePact, 2.0, vec![(k(F::Met), true), (k(F::OpOk), true), (k(F::Pact), false), (k(F::War), false)], vec![(k(F::Pact), true)]);
         add(Act::OfferGuarantee, 2.5, vec![(k(F::Met), true), (k(F::Guar), false), (k(F::War), false)], vec![(k(F::Guar), true)]);
