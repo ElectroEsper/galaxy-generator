@@ -38,6 +38,8 @@ pub const ROUTE_SAMPLE: f64 = 20.0;
 pub const GOODWILL_WEIGHT: f64 = 1.0;
 const VIEW_CENTER: (f64, f64) = (576.0, 340.0);
 const VIEW_RADIUS: (f64, f64) = (470.0, 250.0);
+/// Half-size of an image-driven galaxy on the map (it is square), before scaling by sqrt(systems / 46).
+const MAP_RADIUS: f64 = 330.0;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -51,11 +53,13 @@ pub struct Config {
     pub state: bool,
     pub max_corps: usize,
     pub food_mult: f64,
+    /// Image-driven star placement; None = stars on a uniform disc.
+    pub maps: Option<std::sync::Arc<crate::astro::PlacementMaps>>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { planets: 100, systems: 0, empires: 1, seed: 7, growth: true, colonize: false, taxes: true, state: true, max_corps: 60, food_mult: 1.0 }
+        Config { planets: 100, systems: 0, empires: 1, seed: 7, growth: true, colonize: false, taxes: true, state: true, max_corps: 60, food_mult: 1.0, maps: None }
     }
 }
 
@@ -334,12 +338,34 @@ impl World {
     fn generate_galaxy(&mut self) {
         let star_count = self.cfg.systems;
         let scale = if star_count > 0 { (star_count as f64 / 46.0).sqrt() } else { 1.0 };
+        // With maps: sample star pixels up front (systems mode) or generously (planets mode, stops when enough bodies).
+        let maps = self.cfg.maps.clone();
+        let pixels = match &maps {
+            Some(m) => m.sample(&mut self.rng, if star_count > 0 { star_count } else { self.cfg.planets.max(8) * 2 }),
+            None => vec![],
+        };
         let mut star_idx = 0;
         while (star_count > 0 && star_idx < star_count) || (star_count == 0 && self.colonies.len() < self.cfg.planets) {
-            let star = Star::generate(&mut self.rng, &DEFAULT_POP_WEIGHTS);
-            let a = self.rng.randf() * std::f64::consts::TAU;
-            let r = self.rng.randf().sqrt();
-            let pos = (VIEW_CENTER.0 + a.cos() * r * VIEW_RADIUS.0 * scale, VIEW_CENTER.1 + a.sin() * r * VIEW_RADIUS.1 * scale);
+            let (star, pos) = match &maps {
+                Some(m) => {
+                    if star_idx >= pixels.len() {
+                        break;
+                    }
+                    let (px, py) = pixels[star_idx];
+                    let pop = m.population(&mut self.rng, px, py);
+                    let star = Star::generate(&mut self.rng, &[(pop, 1.0)]);
+                    // Square maps: one radius for both axes, so the galaxy keeps its shape.
+                    let u = px as f64 / m.width as f64 * 2.0 - 1.0;
+                    let v = py as f64 / m.height as f64 * 2.0 - 1.0;
+                    (star, (VIEW_CENTER.0 + u * MAP_RADIUS * scale, VIEW_CENTER.1 + v * MAP_RADIUS * scale))
+                }
+                None => {
+                    let star = Star::generate(&mut self.rng, &DEFAULT_POP_WEIGHTS);
+                    let a = self.rng.randf() * std::f64::consts::TAU;
+                    let r = self.rng.randf().sqrt();
+                    (star, (VIEW_CENTER.0 + a.cos() * r * VIEW_RADIUS.0 * scale, VIEW_CENTER.1 + a.sin() * r * VIEW_RADIUS.1 * scale))
+                }
+            };
             let sid = self.systems.len();
             if !star.planets.is_empty() {
                 self.systems.push(StarSystem { id: sid, name: format!("S{}", star_idx), pos, class: star.class, bodies: vec![], known: true, owner: None, occupier: None, at_front: false });

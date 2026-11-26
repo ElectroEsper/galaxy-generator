@@ -9,6 +9,10 @@ extends Node2D
 @export var planets : int = 100
 @export var sim_seed : int = 7
 @export var months_per_second : float = 6.0
+## Place stars from William's two galaxy images (density + population); off = uniform disc.
+@export var use_maps : bool = true
+@export_file("*.png") var density_map : String = "res://galaxy_maps/spiral_density.png"
+@export_file("*.png") var population_map : String = "res://galaxy_maps/spiral_population.png"
 
 const EMPIRE_COLORS : Array = [Color(0.95, 0.8, 0.35), Color(0.4, 0.75, 1.0), Color(0.95, 0.45, 0.45), Color(0.6, 0.9, 0.5), Color(0.8, 0.6, 1.0), Color(1.0, 0.65, 0.3), Color(0.5, 0.95, 0.9), Color(0.95, 0.6, 0.85)]
 const GOOD_COLORS : Array = [Color(0.72, 0.45, 0.25), Color(0.7, 0.78, 0.9), Color(0.95, 0.8, 0.3), Color(0.45, 0.85, 0.4), Color(0.35, 0.65, 1.0)]
@@ -39,7 +43,11 @@ func _ready() -> void:
 	sim = ClassDB.instantiate("GalaxySim")
 	add_child(sim)
 	sim.set_speed(months_per_second)
-	sim.start({"systems": systems, "empires": empires, "planets": planets, "seed": sim_seed})
+	var cfg : Dictionary = {"systems": systems, "empires": empires, "planets": planets, "seed": sim_seed}
+	if use_maps:
+		cfg["density_map"] = density_map
+		cfg["population_map"] = population_map
+	sim.start(cfg)
 	ship_layer = Node2D.new()
 	ship_layer.draw.connect(_draw_ships)
 	add_child(ship_layer)

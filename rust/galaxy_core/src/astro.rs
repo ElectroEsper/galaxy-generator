@@ -174,6 +174,8 @@ pub struct Planet {
     pub water: f64,
     pub edibles: f64,
     pub volatiles: f64,
+    /// Classification (planet.gd classify_planet), e.g. "Garden", "Hermian", "Jovian".
+    pub class: &'static str,
 }
 
 fn volcanism_level(normal: bool, has_volcanism: bool, index: f64) -> u8 {
@@ -215,7 +217,7 @@ fn regulation_coef(water: bool, tectonic: bool, outgassing: f64) -> f64 {
 
 impl Planet {
     fn generate(rng: &mut Rng, star: &Star, distance: f64, btype: BaseType) -> Planet {
-        let mut p = Planet { distance, btype, mass: 0.0, radius: 0.0, temperature_raw: 0.0, life_stage: 0, has_water: false, has_ice: false, ore: 0.0, water: 0.0, edibles: 0.0, volatiles: 0.0 };
+        let mut p = Planet { distance, btype, mass: 0.0, radius: 0.0, temperature_raw: 0.0, life_stage: 0, has_water: false, has_ice: false, ore: 0.0, water: 0.0, edibles: 0.0, volatiles: 0.0, class: "Asteroid Ring" };
         let metal01 = (star.metallicity / 3.0).clamp(0.0, 1.0);
         if btype == BaseType::Belt {
             p.mass = 0.002 / distance.sqrt();
@@ -270,7 +272,7 @@ impl Planet {
             BaseType::Belt => 0.0,
         };
         let tidallock = 1.2e5 * ((rotation * distance.powi(6)) / (star.mass * p.radius.powi(2))) < star.age;
-        let _magnetic = !tidallock && has_dynamo;
+        let magnetic = !tidallock && has_dynamo;
         let mut retention = 1.0 - (((1.0 - (p.mass / (p.radius * (temp_eq / 288.0)))) / 4.5) * star.age) + reg;
         let can_volatiles = temp_eq < 250.0;
         let r_vol = distance / star.volatileline;
@@ -291,11 +293,15 @@ impl Planet {
             if eff >= BIOSPHERE_MATURE { 2 } else if eff > 0.0 { 1 } else { 0 }
         };
         p.temperature_raw = (temp_eq * (1.0 + gh_volc + retention.clamp(0.0, 1.0)).powf(1.0 / 6.0)).round();
+        let mut temperature_gh = (p.temperature_raw - temp_eq).round();
         if star.age < PROTOPLANET_AGE {
+            temperature_gh = 0.0;
             let r_scale = ((distance - star.min_orbit) / (star.max_orbit - star.min_orbit).max(0.0001)).clamp(0.0, 1.0);
             let accretion = PROTO_TEMP_MIN + (PROTO_TEMP_MAX - PROTO_TEMP_MIN) * (-PROTO_FALLOFF * r_scale).exp();
             p.temperature_raw = (accretion + temp_eq * PROTO_INSOLATION).round();
         }
+        let subsurface = can_ice && volcanism >= 3;
+        p.class = classify(btype, volcanism, p.temperature_raw, temperature_gh, p.has_ice || p.has_water || subsurface, has_volatile, has_volatile_ice, tidallock, magnetic, tectonic, p.life_stage, star.age);
         // Resources (planet_resources.gd)
         match btype {
             BaseType::GasGiant => p.volatiles = rng.range(5.0, 9.0),
@@ -328,25 +334,151 @@ impl Planet {
     }
 
     pub fn label(&self) -> &'static str {
-        match self.btype {
-            BaseType::Belt => "Asteroid belt",
-            BaseType::GasGiant => "Gas giant",
-            BaseType::IceGiant => "Ice giant",
-            BaseType::Normal => {
-                if self.life_stage == 2 {
-                    "Garden"
-                } else if self.temperature_raw >= 500.0 {
-                    "Infernal"
-                } else if self.temperature_raw >= 341.0 {
-                    "Torrid"
-                } else if self.temperature_raw >= 250.0 {
-                    "Temperate"
-                } else if self.temperature_raw >= 100.0 {
-                    "Frigid"
-                } else {
-                    "Cryogenic"
-                }
+        self.class
+    }
+}
+
+/// Planet classification (planet.gd classify_planet). Volcanism: 0 none, 1 dead, 2 dormant, 3 restrained, 4 active,
+/// 5 hyper-active. Life stage: 0 sterile, 1 nascent, 2 flourishing.
+#[allow(clippy::too_many_arguments)]
+pub fn classify(btype: BaseType, volc: u8, t: f64, gh: f64, water_or_ice: bool, volatiles: bool, volatile_ice: bool, tidallock: bool, magnetic: bool, tectonic: bool, life: u8, star_age: f64) -> &'static str {
+    let by_life = |flourishing: &'static str, nascent: &'static str, sterile: &'static str| match life {
+        2 => flourishing,
+        1 => nascent,
+        _ => sterile,
+    };
+    if star_age < PROTOPLANET_AGE {
+        return match btype {
+            BaseType::Belt => "Debris Disk Remnant",
+            BaseType::GasGiant | BaseType::IceGiant => "Proto Giant",
+            BaseType::Normal => "Protoplanetary Core",
+        };
+    }
+    match btype {
+        BaseType::Belt => return "Asteroid Ring",
+        BaseType::GasGiant => return if t >= 500.0 { "Pegasean" } else if gh >= 120.0 { "Hyper-Dense Cronian" } else { "Jovian" },
+        BaseType::IceGiant => return if t >= 341.0 { "Sultry Neptunian" } else if gh >= 120.0 { "Dense Neptunian" } else { "Neptunian" },
+        BaseType::Normal => {}
+    }
+    // Infernal extremes
+    if t >= 500.0 {
+        if gh >= 150.0 || volc == 5 {
+            return "Venerian";
+        }
+        if gh >= 50.0 {
+            return if magnetic { "Corrosive Magma Trap" } else { "Scorched Greenhouse" };
+        }
+        return "Hermian";
+    }
+    // Cryogenic (before the dry catch-all: below the frost point only core heat matters)
+    if t < 100.0 {
+        return if volc >= 3 { "Sub-Glacial" } else { "Plutonian" };
+    }
+    // Volatile-starved dry worlds
+    if !water_or_ice {
+        if volc == 5 {
+            return "Molten Obsidian";
+        }
+        if volc == 1 && gh <= 1.0 {
+            return "Super-Dry Iron Ball";
+        }
+        return if t < 341.0 { "Dry Husk" } else { "Scorched Wasteland" };
+    }
+    // Torrid
+    if t >= 341.0 {
+        if gh >= 80.0 {
+            return "Steam World";
+        }
+        if volc == 5 || gh >= 30.0 {
+            return "Pyroclastic Smolder";
+        }
+        return "Scorched Wasteland";
+    }
+    // Frigid
+    if t <= 249.0 {
+        if tidallock {
+            return "Glacial Locked";
+        }
+        if volc == 5 && gh >= 25.0 {
+            return if volatile_ice { "Cryo-Volcanic Fissure" } else { "Scoured Cryovolcanic" };
+        }
+        if gh >= 40.0 && volatiles {
+            return "Cryo-Dense Titanian";
+        }
+        if tectonic || volc >= 4 {
+            return if volatile_ice { "Boreal Alpine" } else { "Rocky Tundra" };
+        }
+        return "Glacial Taiga";
+    }
+    // Temperate
+    if tidallock {
+        return "Twilight";
+    }
+    if gh >= 60.0 && volc == 5 {
+        return by_life("Exo-Carboniferous", "Humid Wetland", "Abiotic Ocean");
+    }
+    if gh >= 40.0 && !tectonic {
+        return by_life("Ocean", "Primordial Ocean", "Abiotic Ocean");
+    }
+    if !magnetic {
+        return by_life("Magneto-Stripped Garden", "Fading Garden", "Eroding Husk");
+    }
+    match volc {
+        1 => "Cooled Fossil",
+        2 => if life == 0 { "Barren Steppe" } else { "Arid" },
+        3 => if life == 0 { "Dust Savanna" } else { "Savanna" },
+        _ => by_life("Garden", "Budding Garden", "Barren Eden"),
+    }
+}
+
+// ---------------------------------------------------------------- Image-driven placement
+/// William's two-map galaxy design: a greyscale density map (pixel brightness = weight for holding a star) and a
+/// colour population map (at a star's pixel, the R, G, B channels are tried brightest first, each passing with a
+/// chance equal to its value: G = Pop I, B = Pop I-i, R = Pop II-i, none = Pop II).
+#[derive(Clone, Debug)]
+pub struct PlacementMaps {
+    pub width: usize,
+    pub height: usize,
+    /// Brightness 0..1 per pixel, row-major.
+    pub density: Vec<f32>,
+    /// RGB 0..1 per pixel, row-major.
+    pub colour: Vec<[f32; 3]>,
+}
+
+impl PlacementMaps {
+    /// Pick `count` distinct pixels, each with probability proportional to its brightness.
+    pub fn sample(&self, rng: &mut Rng, count: usize) -> Vec<(usize, usize)> {
+        let mut cumulative = Vec::with_capacity(self.density.len());
+        let mut total = 0.0f64;
+        for &d in &self.density {
+            total += d as f64;
+            cumulative.push(total);
+        }
+        let mut taken = std::collections::HashSet::new();
+        let mut out = vec![];
+        let mut guard = count * 50;
+        while out.len() < count && guard > 0 && total > 0.0 {
+            guard -= 1;
+            let r = rng.randf() * total;
+            let i = cumulative.partition_point(|&c| c < r).min(self.density.len() - 1);
+            if taken.insert(i) {
+                out.push((i % self.width, i / self.width));
             }
         }
+        out
+    }
+
+    /// The population at a pixel (William's channel rule).
+    pub fn population(&self, rng: &mut Rng, x: usize, y: usize) -> Pop {
+        let c = self.colour[y * self.width + x];
+        let mut ch = vec![(Pop::Pop2i, c[0]), (Pop::Pop1, c[1]), (Pop::Pop1i, c[2])];
+        rng.shuffle(&mut ch); // random order among equal channels
+        ch.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        for (p, v) in ch {
+            if rng.randf() < v as f64 {
+                return p;
+            }
+        }
+        Pop::Pop2
     }
 }

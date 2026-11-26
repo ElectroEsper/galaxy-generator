@@ -12,6 +12,9 @@ func _initialize() -> void:
 		elif a.begins_with("frames="): limit = int(a.get_slice("=", 1))
 	var v = load("res://economy_proto/rust_view.tscn").instantiate()
 	v.months_per_second = 60.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("systems="): v.systems = int(a.get_slice("=", 1))
+		elif a.begins_with("empires="): v.empires = int(a.get_slice("=", 1))
 	root.add_child(v)
 
 func _process(_d : float) -> bool:

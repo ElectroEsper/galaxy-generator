@@ -53,6 +53,28 @@ impl INode for GalaxySim {
     }
 }
 
+/// Both maps given (res:// or file paths) -> image-driven placement; otherwise None (uniform disc).
+fn load_maps(density: &GString, population: &GString) -> Option<Arc<galaxy_core::astro::PlacementMaps>> {
+    if density.is_empty() || population.is_empty() {
+        return None;
+    }
+    let read = |path: &GString| -> Option<(usize, usize, Vec<[f32; 3]>)> {
+        let mut img = godot::classes::Image::load_from_file(path)?;
+        img.convert(godot::classes::image::Format::RGB8);
+        let (w, h) = (img.get_width() as usize, img.get_height() as usize);
+        let data = img.get_data();
+        let bytes = data.as_slice();
+        Some((w, h, (0..w * h).map(|i| [bytes[i * 3] as f32 / 255.0, bytes[i * 3 + 1] as f32 / 255.0, bytes[i * 3 + 2] as f32 / 255.0]).collect()))
+    };
+    let (w, h, d) = read(density)?;
+    let (w2, h2, c) = read(population)?;
+    if w != w2 || h != h2 {
+        godot_error!("GalaxySim: density and population maps must be the same size");
+        return None;
+    }
+    Some(Arc::new(galaxy_core::astro::PlacementMaps { width: w, height: h, density: d.iter().map(|p| (p[0] + p[1] + p[2]) / 3.0).collect(), colour: c }))
+}
+
 fn put<T: ToGodot>(d: &mut Dictionary<Variant, Variant>, k: &str, v: T) {
     d.set(&k.to_variant(), &v.to_variant());
 }
@@ -64,7 +86,7 @@ fn get_or<T: FromGodot>(d: &Dictionary<Variant, Variant>, k: &str, default: T) -
 #[godot_api]
 impl GalaxySim {
     /// Build a galaxy and start the sim thread. Keys (all optional): systems, planets, empires, seed, colonize, taxes,
-    /// state, growth, max_corps.
+    /// state, growth, max_corps, density_map + population_map (image paths: stars placed from the maps).
     #[func]
     fn start(&mut self, config: Dictionary<Variant, Variant>) {
         self.stop();
@@ -79,6 +101,7 @@ impl GalaxySim {
             growth: get_or(&config, "growth", true),
             max_corps: get_or::<i64>(&config, "max_corps", 60) as usize,
             food_mult: 1.0,
+            maps: load_maps(&get_or(&config, "density_map", GString::new()), &get_or(&config, "population_map", GString::new())),
         };
         let shared = self.shared.clone();
         shared.stop.store(false, Ordering::SeqCst);

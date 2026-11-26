@@ -16,7 +16,9 @@ cargo build --release                       # everything, including the Godot li
 ```
 
 In Godot: build `galaxy_gd`, then run `economy_proto/rust_view.tscn` (the project's `galaxy.gdextension` points at
-`rust/target/release/`). On Windows build on Windows (`galaxy_gd.dll`).
+`rust/target/release/`). On Windows: build with `cargo build --release -p galaxy_gd`, or download `galaxy_gd-windows` from the latest
+**Rust** workflow run on GitHub (Actions tab) and put `galaxy_gd.dll` in `rust/target/release/`.
+Image-driven galaxies: `galaxy_cli ... maps=default` (uses `galaxy_maps/`); the view does this by default.
 Headless check: `godot --headless --path . --script res://economy_proto/test_rust_sim.gd`.
 
 Speed: 46 systems, 4 empires, 180 years in about 4 s; 1,000 systems, 8 empires, 500 years in about 110 s.

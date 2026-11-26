@@ -21,6 +21,11 @@ fn main() {
             "taxes" => cfg.taxes = v != "0",
             "colonize" => cfg.colonize = v == "1",
             "ticks" => ticks = v.parse().unwrap_or(600),
+            // maps=<dir> with spiral_density.png and spiral_population.png (maps=default: the repo's galaxy_maps/)
+            "maps" => {
+                let dir = if v == "default" { "../galaxy_maps" } else { v };
+                cfg.maps = Some(std::sync::Arc::new(load_maps(&format!("{}/spiral_density.png", dir), &format!("{}/spiral_population.png", dir))));
+            }
             _ => eprintln!("unknown argument {}", a),
         }
     }
@@ -62,4 +67,33 @@ fn main() {
     for (k, v) in &w.prof {
         println!("PROFILE,{},{:.2}", k, v);
     }
+}
+
+/// Load an image as RGB floats 0..1.
+fn load_rgb(path: &str) -> (usize, usize, Vec<[f32; 3]>) {
+    let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("cannot open {}: {}", path, e));
+    let mut dec = png::Decoder::new(std::io::BufReader::new(file));
+    dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = dec.read_info().expect("bad png");
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).expect("bad png frame");
+    let ch = info.color_type.samples();
+    let (w, h) = (info.width as usize, info.height as usize);
+    let px = (0..w * h)
+        .map(|i| {
+            let p = &buf[i * ch..i * ch + ch];
+            match ch {
+                1 | 2 => [p[0] as f32 / 255.0; 3],
+                _ => [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0],
+            }
+        })
+        .collect();
+    (w, h, px)
+}
+
+fn load_maps(density: &str, population: &str) -> galaxy_core::astro::PlacementMaps {
+    let (w, h, d) = load_rgb(density);
+    let (w2, h2, c) = load_rgb(population);
+    assert!(w == w2 && h == h2, "density and population maps must be the same size");
+    galaxy_core::astro::PlacementMaps { width: w, height: h, density: d.iter().map(|p| (p[0] + p[1] + p[2]) / 3.0).collect(), colour: c }
 }
