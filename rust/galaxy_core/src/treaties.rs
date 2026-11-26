@@ -110,21 +110,25 @@ pub fn describe_all(w: &World, terms: &[Term]) -> String {
     terms.iter().map(|t| describe(w, t)).collect::<Vec<_>>().join(" / ")
 }
 
-/// War score from side's point of view, -100..100.
+/// War score for one side of a war (0 attackers, 1 defenders), -100..100: occupations, strength and exhaustion of
+/// the whole coalitions.
 pub fn score(w: &World, war_id: usize, side: usize) -> f64 {
     let war = w.wars.iter().find(|x| x.id == war_id).unwrap();
-    let other = if side == war.a { war.b } else { war.a };
+    let (us, them) = (&war.sides[side], &war.sides[1 - side]);
     let (mut held, mut lost) = (0.0, 0.0);
     for s in &w.systems {
-        if s.owner == Some(other) && s.occupier == Some(side) {
+        let (o, p) = (s.owner, s.occupier);
+        if o.map_or(false, |o| them.contains(&o)) && p.map_or(false, |p| us.contains(&p)) {
             held += 1.0;
-        } else if s.owner == Some(side) && s.occupier == Some(other) {
+        } else if o.map_or(false, |o| us.contains(&o)) && p.map_or(false, |p| them.contains(&p)) {
             lost += 1.0;
         }
     }
-    let (ss, so) = (w.empires[side].strength, w.empires[other].strength);
+    let sum = |v: &Vec<usize>| v.iter().map(|&e| w.empires[e].strength).sum::<f64>();
+    let avg_exh = |v: &Vec<usize>| v.iter().map(|&e| w.empires[e].exhaustion).sum::<f64>() / v.len().max(1) as f64;
+    let (ss, so) = (sum(us), sum(them));
     let st = 25.0 * (ss - so) / (ss + so).max(1.0);
-    (12.0 * (held - lost) + st + 0.4 * (w.empires[other].exhaustion - w.empires[side].exhaustion)).clamp(-100.0, 100.0)
+    (12.0 * (held - lost) + st + 0.4 * (avg_exh(them) - avg_exh(us))).clamp(-100.0, 100.0)
 }
 
 fn by_pop_desc(w: &World, list: &mut [usize], owner: usize) {
@@ -167,7 +171,7 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
     if w.empires[a].t(TRAIT_AGGRESSION) >= 0.65 && w.empires[a].t(TRAIT_CAUTION) <= 0.4 {
         let why = format!("surprise attack on {}", w.empires[b].name);
         crate::alliances::adjust_reputation(w, a, -REP_SURPRISE, &why);
-        let id = w.declare(a, b, None, goals);
+        let id = w.declare(a, b, goals);
         let until = w.tick as i64 + FIRST_STRIKE_MONTHS;
         if let Some(war) = w.wars.iter_mut().find(|x| x.id == id) {
             war.first_strike_until = until;
@@ -181,7 +185,7 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
         demand = goals.iter().cloned().take(1).collect();
     }
     if demand.is_empty() {
-        w.declare(a, b, None, goals);
+        w.declare(a, b, goals);
         return;
     }
     // The target yields if it expects to lose badly; proud or aggressive empires yield less.
@@ -193,7 +197,7 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
         let t = format!("{} yields to {}'s ultimatum: {}", w.empires[b].name, w.empires[a].name, desc);
         w.event(t);
         let v = total(w, &demand);
-        apply(w, &demand, a, b, v, true, -1.0);
+        apply_terms(w, &demand, a, b, v, true, -1.0);
         let why = format!("ultimatum to {}", w.empires[b].name);
         crate::alliances::adjust_reputation(w, a, -3.0, &why);
         // A concession buys a truce and stiffens the victim (appeasement fatigue).
@@ -204,29 +208,43 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
     } else {
         let t = format!("{} rejects {}'s ultimatum ({})", w.empires[b].name, w.empires[a].name, desc);
         w.event(t);
-        w.declare(a, b, None, goals);
+        w.declare(a, b, goals);
     }
 }
 
-/// What the side ahead demands with war score s: its goals first, then occupied systems and extras, up to a budget
-/// that grows with its aggression (greed).
-fn demand(w: &World, war_id: usize, winner: usize, loser: usize, s: f64) -> Vec<Term> {
+/// What the side ahead demands with war score s: the attacker's goals (if it is ahead), then every system its members
+/// occupy (each goes to its occupier), then extras for its leader, up to a budget that grows with the leader's greed.
+fn demand(w: &World, war_id: usize, win: usize, s: f64) -> Vec<Term> {
     let war = w.wars.iter().find(|x| x.id == war_id).unwrap();
-    let budget = s * (0.8 + 0.7 * w.empires[winner].t(TRAIT_AGGRESSION));
+    let (winners, losers) = (&war.sides[win], &war.sides[1 - win]);
+    let (wl, ll) = (war.leader(win), war.leader(1 - win));
+    let budget = s * (0.8 + 0.7 * w.empires[wl].t(TRAIT_AGGRESSION));
     let mut cands: Vec<Term> = vec![];
-    if winner == war.a {
-        cands.extend(war.goals.iter().cloned().filter(|t| t.kind != TermKind::Cede || w.systems[t.system.unwrap()].owner == Some(loser)));
+    if win == 0 {
+        cands.extend(war.goals.iter().cloned().filter(|t| t.kind != TermKind::Cede || w.systems[t.system.unwrap()].owner.map_or(false, |o| losers.contains(&o))).map(|mut t| {
+            if t.kind == TermKind::Cede {
+                t.from = w.systems[t.system.unwrap()].owner.unwrap();
+            }
+            t
+        }));
     }
-    let mut occupied: Vec<usize> = w.systems.iter().filter(|x| x.owner == Some(loser) && x.occupier == Some(winner)).map(|x| x.id).collect();
-    by_pop_desc(w, &mut occupied, loser);
-    for s in occupied {
-        if !cands.iter().any(|t| t.kind == TermKind::Cede && t.system == Some(s)) {
-            cands.push(Term { kind: TermKind::Cede, system: Some(s), from: loser, to: winner });
+    let mut occupied: Vec<(usize, usize, usize)> = w
+        .systems
+        .iter()
+        .filter(|x| x.owner.map_or(false, |o| losers.contains(&o)) && x.occupier.map_or(false, |o| winners.contains(&o)))
+        .map(|x| (x.id, x.owner.unwrap(), x.occupier.unwrap()))
+        .collect();
+    occupied.sort_by(|a, b| system_pop(w, b.0, b.1).partial_cmp(&system_pop(w, a.0, a.1)).unwrap().then(w.systems[a.0].name.cmp(&w.systems[b.0].name)));
+    for (sid, owner, occ) in occupied {
+        if let Some(t) = cands.iter_mut().find(|t| t.kind == TermKind::Cede && t.system == Some(sid)) {
+            t.to = occ; // whoever holds it gets it
+        } else {
+            cands.push(Term { kind: TermKind::Cede, system: Some(sid), from: owner, to: occ });
         }
     }
     for k in [TermKind::Reparations, TermKind::Humiliate] {
-        if w.empires[winner].t(TRAIT_AGGRESSION) >= 0.5 && !cands.iter().any(|t| t.kind == k) {
-            cands.push(Term { kind: k, system: None, from: loser, to: winner });
+        if w.empires[wl].t(TRAIT_AGGRESSION) >= 0.5 && !cands.iter().any(|t| t.kind == k) {
+            cands.push(Term { kind: k, system: None, from: ll, to: wl });
         }
     }
     let mut out = vec![];
@@ -241,15 +259,15 @@ fn demand(w: &World, war_id: usize, winner: usize, loser: usize, s: f64) -> Vec<
     out
 }
 
-/// proposer wants peace. Returns true if peace was made.
+/// proposer (a side's leader) wants peace for the whole war. Returns true if peace was made.
 pub fn negotiate(w: &mut World, war_id: usize, proposer: usize) -> bool {
-    let (a, b) = {
+    let (psid, l0, l1) = {
         let war = w.wars.iter().find(|x| x.id == war_id).unwrap();
-        (war.a, war.b)
+        (war.side_of(proposer).unwrap(), war.leader(0), war.leader(1))
     };
-    let sa = score(w, war_id, a);
-    let other = if proposer == a { b } else { a };
-    if sa.abs() < WHITE_PEACE_SCORE {
+    let s0 = score(w, war_id, 0);
+    let other = if psid == 0 { l1 } else { l0 };
+    if s0.abs() < WHITE_PEACE_SCORE {
         if w.empires[other].exhaustion >= 25.0 || w.empires[proposer].exhaustion >= 25.0 {
             let t = format!("{} and {} agree to a white peace", w.empires[proposer].name, w.empires[other].name);
             w.event(t);
@@ -258,9 +276,10 @@ pub fn negotiate(w: &mut World, war_id: usize, proposer: usize) -> bool {
         }
         return false;
     }
-    let (winner, loser) = if sa > 0.0 { (a, b) } else { (b, a) };
-    let s = sa.abs();
-    let terms = demand(w, war_id, winner, loser, s);
+    let win = if s0 > 0.0 { 0 } else { 1 };
+    let (winner, loser) = if win == 0 { (l0, l1) } else { (l1, l0) };
+    let s = s0.abs();
+    let terms = demand(w, war_id, win, s);
     let v = total(w, &terms);
     let desc = if terms.is_empty() { "nothing".to_string() } else { describe_all(w, &terms) };
     let (wn, ln) = (w.empires[winner].name.clone(), w.empires[loser].name.clone());
@@ -278,7 +297,6 @@ pub fn negotiate(w: &mut World, war_id: usize, proposer: usize) -> bool {
         settle(w, war_id, &terms, winner, loser, s);
         return true;
     }
-    // Counter-offer: drop the costliest terms until the price is fair.
     let mut counter = terms.clone();
     counter.sort_by(|x, y| value(w, x).partial_cmp(&value(w, y)).unwrap());
     while !counter.is_empty() && total(w, &counter) > s {
@@ -294,64 +312,66 @@ pub fn negotiate(w: &mut World, war_id: usize, proposer: usize) -> bool {
     false
 }
 
-/// side collapsed: the other side takes what it demands, with a larger budget.
-pub fn capitulate(w: &mut World, war_id: usize, side: usize) {
-    let (a, b) = {
+/// A side's leader collapsed: the other side takes what it demands, with a larger budget.
+pub fn capitulate(w: &mut World, war_id: usize, losing_side: usize) {
+    let (winner, loser) = {
         let war = w.wars.iter().find(|x| x.id == war_id).unwrap();
-        (war.a, war.b)
+        (war.leader(1 - losing_side), war.leader(losing_side))
     };
-    let winner = if side == a { b } else { a };
-    let s = score(w, war_id, winner).abs().max(30.0) * 1.5;
-    let terms = demand(w, war_id, winner, side, s);
+    let s = score(w, war_id, 1 - losing_side).abs().max(30.0) * 1.5;
+    let terms = demand(w, war_id, 1 - losing_side, s);
     let desc = if terms.is_empty() { "nothing".to_string() } else { describe_all(w, &terms) };
-    let t = format!("{} capitulates to {}: {}", w.empires[side].name, w.empires[winner].name, desc);
+    let t = format!("{} capitulates to {}: {}", w.empires[loser].name, w.empires[winner].name, desc);
     w.event(t);
-    settle(w, war_id, &terms, winner, side, s / 1.5);
+    settle(w, war_id, &terms, winner, loser, s / 1.5);
 }
 
 fn settle(w: &mut World, war_id: usize, terms: &[Term], winner: usize, loser: usize, s: f64) {
     let tv = total(w, terms); // valued while the occupations still stand
     w.make_peace(war_id, terms);
-    apply(w, terms, winner, loser, s, false, tv);
+    apply_terms(w, terms, winner, loser, s, false, tv);
 }
 
-/// Carry out the terms, then the consequences of greed.
-fn apply(w: &mut World, terms: &[Term], winner: usize, loser: usize, fair: f64, concession: bool, tv: f64) {
+/// Carry out the terms (winner/loser = the sides' leaders), then the consequences of greed: reputation for the winning
+/// leader, and a grudge for each empire that lost systems against the empire that took them.
+pub fn apply_terms(w: &mut World, terms: &[Term], winner: usize, loser: usize, fair: f64, concession: bool, tv: f64) {
     let year = w.year();
     let tv = if tv < 0.0 { total(w, terms) } else { tv };
-    let mut ceded = vec![];
+    let mut ceded: Vec<(usize, usize, usize)> = vec![]; // (system, from, to)
     for t in terms {
         match t.kind {
             TermKind::Cede => {
                 let s = t.system.unwrap();
-                w.transfer_system(s, winner, loser);
-                ceded.push(s);
+                w.transfer_system(s, t.to, t.from);
+                ceded.push((s, t.from, t.to));
             }
             TermKind::Reparations => {
-                let monthly = REPARATIONS_SHARE * w.empires[loser].avg_tax;
-                w.rel_mut(winner, loser).reparations = Some(Reparations { payer: loser, payee: winner, monthly, until: year + REPARATIONS_YEARS });
+                let monthly = REPARATIONS_SHARE * w.empires[t.from].avg_tax;
+                w.rel_mut(t.to, t.from).reparations = Some(Reparations { payer: t.from, payee: t.to, monthly, until: year + REPARATIONS_YEARS });
             }
             TermKind::OpenMarket => {
-                let r = w.rel_mut(winner, loser);
+                let r = w.rel_mut(t.to, t.from);
                 r.trade_treaty = true;
-                r.forced_market = Some((loser, year + FORCED_YEARS));
+                r.forced_market = Some((t.from, year + FORCED_YEARS));
             }
             TermKind::Transit => {
-                let r = w.rel_mut(winner, loser);
+                let r = w.rel_mut(t.to, t.from);
                 r.passage = true;
-                r.forced_transit = Some((loser, year + FORCED_YEARS));
+                r.forced_transit = Some((t.from, year + FORCED_YEARS));
             }
             TermKind::Demilitarize => {
-                w.empires[loser].demilitarized_until = year + DEMILITARIZE_YEARS;
-                w.empires[loser].demilitarized_by = Some(winner);
+                w.empires[t.from].demilitarized_until = year + DEMILITARIZE_YEARS;
+                w.empires[t.from].demilitarized_by = Some(t.to);
             }
             TermKind::Humiliate => {
-                let why = format!("humiliated by {}", w.empires[winner].name);
-                crate::alliances::adjust_reputation(w, loser, -HUMILIATE_REP, &why);
+                let why = format!("humiliated by {}", w.empires[t.to].name);
+                crate::alliances::adjust_reputation(w, t.from, -HUMILIATE_REP, &why);
             }
         }
     }
-    w.empires[winner].systems_taken += ceded.len() as i32;
+    for &(_, _, to) in &ceded {
+        w.empires[to].systems_taken += 1;
+    }
     if terms.is_empty() {
         return;
     }
@@ -360,7 +380,23 @@ fn apply(w: &mut World, terms: &[Term], winner: usize, loser: usize, fair: f64, 
         let why = format!("harsh peace imposed on {}", w.empires[loser].name);
         crate::alliances::adjust_reputation(w, winner, -REP_PER_GREED * (greed - 1.2), &why);
     }
-    // Revanchism
+    // Grudges: each (loser, gainer) pair that changed hands, or the leaders if no system did.
+    let mut pairs: Vec<(usize, usize)> = vec![];
+    for &(_, f, t) in &ceded {
+        if !pairs.contains(&(f, t)) {
+            pairs.push((f, t));
+        }
+    }
+    if pairs.is_empty() {
+        pairs.push((loser, winner));
+    }
+    for (l, g) in pairs {
+        let lost: Vec<usize> = ceded.iter().filter(|c| c.1 == l && c.2 == g).map(|c| c.0).collect();
+        grudge(w, l, g, greed, &lost, concession, year);
+    }
+}
+
+fn grudge(w: &mut World, loser: usize, winner: usize, greed: f64, lost: &[usize], concession: bool, year: i64) {
     let idx = match w.empires[loser].revanche.iter().position(|r| r.victor == winner) {
         Some(i) => i,
         None => {
@@ -370,8 +406,8 @@ fn apply(w: &mut World, terms: &[Term], winner: usize, loser: usize, fair: f64, 
     };
     {
         let rev = &mut w.empires[loser].revanche[idx];
-        rev.level = (rev.level + REV_BASE * if concession { 0.5 } else { 1.0 } + REV_PER_GREED * (greed - 0.8).max(0.0) + REV_PER_SYSTEM * ceded.len() as f64).min(100.0);
-        for s in &ceded {
+        rev.level = (rev.level + REV_BASE * if concession { 0.5 } else { 1.0 } + REV_PER_GREED * (greed - 0.8).max(0.0) + REV_PER_SYSTEM * lost.len() as f64).min(100.0);
+        for s in lost {
             if !rev.claims.contains(s) {
                 rev.claims.push(*s);
             }
@@ -501,7 +537,7 @@ pub fn opportunity(w: &World, e: usize, x: usize) -> bool {
     if revanche_level(w, e, x) < REV_ACT {
         return false;
     }
-    let busy = w.wars.iter().any(|war| (war.a == x || war.b == x) && war.a != e && war.b != e);
+    let busy = w.wars.iter().any(|war| war.side_of(x).is_some() && war.side_of(e).is_none());
     let need = if busy { 0.8 } else { 1.0 };
     w.empires[e].strength >= crate::alliances::effective_strength(w, x, e) * need
 }

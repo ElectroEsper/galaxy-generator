@@ -245,6 +245,14 @@ Each feature in the prototype, with what the port must carry. New rows are added
 
 ## 11. Changelog
 
+- 2026-11-26: multi-party wars. `War` has two sides (`sides: [Vec<EmpireId>; 2]`, leader first) instead of child wars:
+  combat sums each side's committed strength (members without a front send half), losses are shared in proportion,
+  any member may occupy any enemy member's front system. Allies answering calls to arms, coalition members (an
+  aggressor they fear is winning) and opportunists (a winning attacker next door) join a side (`join_war`). Leaders
+  negotiate peace for the whole war; each occupied system goes to its occupier; grudges are per (loser, gainer).
+  Minor members can leave by separate peace; a collapsing leader capitulates for its side. Only goals about ending a
+  war may plan `sue_for_peace`.
+
 - 2026-11-26: guaranteed homeworlds (`World::capital_star`, `capital_spots`): in colonization runs each empire's
   capital star is generated first (a temperate rocky world with Ore >= 3 and Water or Food >= 3, star past the
   protoplanet age), placed on a ring (uniform galaxy) or spread across the density map (image galaxy). They count

@@ -29,18 +29,30 @@ pub const EXH_CAPITULATE: f64 = 100.0;
 pub const EXH_RECOVER: f64 = 1.0;
 pub const TRUCE_YEARS: i64 = 15;
 
+/// A war between two sides. Side 0 attacked; each side's first member is its leader, who negotiates the peace.
+/// Allies answering a call to arms, coalition members and opportunists join a side; minor members can leave early.
 #[derive(Clone, Debug)]
 pub struct War {
     pub id: usize,
-    pub a: usize,
-    pub b: usize,
+    pub sides: [Vec<usize>; 2],
     pub start: u32,
-    pub peak_a: f64,
-    pub peak_b: f64,
-    /// The war an ally joined by answering a call to arms.
-    pub parent: Option<usize>,
+    /// Peak strength per empire during this war (for exhaustion from losses).
+    pub peak: Vec<f64>,
+    /// The attacking leader's war goals.
     pub goals: Vec<Term>,
     pub first_strike_until: i64,
+}
+
+impl War {
+    pub fn leader(&self, side: usize) -> usize {
+        self.sides[side][0]
+    }
+    pub fn side_of(&self, e: usize) -> Option<usize> {
+        (0..2).find(|&s| self.sides[s].contains(&e))
+    }
+    pub fn members(&self) -> impl Iterator<Item = usize> + '_ {
+        self.sides[0].iter().chain(self.sides[1].iter()).cloned()
+    }
 }
 
 impl World {
@@ -48,12 +60,32 @@ impl World {
         self.tick as i64 / 12
     }
 
+    /// a and b are on opposite sides of some war.
     pub fn at_war(&self, a: usize, b: usize) -> bool {
-        self.wars.iter().any(|w| (w.a == a && w.b == b) || (w.a == b && w.b == a))
+        self.war_between(a, b).is_some()
+    }
+
+    pub fn war_between(&self, a: usize, b: usize) -> Option<usize> {
+        self.wars.iter().find(|w| matches!((w.side_of(a), w.side_of(b)), (Some(x), Some(y)) if x != y)).map(|w| w.id)
     }
 
     pub fn in_any_war(&self, x: usize) -> bool {
-        self.wars.iter().any(|w| w.a == x || w.b == x)
+        self.wars.iter().any(|w| w.side_of(x).is_some())
+    }
+
+    pub fn war_index(&self, id: usize) -> Option<usize> {
+        self.wars.iter().position(|w| w.id == id)
+    }
+
+    /// Everyone e is at war with.
+    pub fn enemies_of(&self, e: usize) -> Vec<usize> {
+        let mut out = vec![];
+        for w in &self.wars {
+            if let Some(s) = w.side_of(e) {
+                out.extend(w.sides[1 - s].iter().cloned());
+            }
+        }
+        out
     }
 
     pub fn owned_systems(&self, e: usize) -> Vec<usize> {
@@ -67,8 +99,14 @@ impl World {
         }
         let ids: Vec<usize> = self.wars.iter().map(|w| w.id).collect();
         for id in ids {
-            if let Some(i) = self.wars.iter().position(|w| w.id == id) {
+            if let Some(i) = self.war_index(id) {
                 self.fight(i);
+            }
+        }
+        // A side left without members ends the war.
+        for id in self.wars.iter().filter(|w| w.sides[0].is_empty() || w.sides[1].is_empty()).map(|w| w.id).collect::<Vec<_>>() {
+            if let Some(i) = self.war_index(id) {
+                self.wars.remove(i);
             }
         }
         self.reparations_monthly();
@@ -207,153 +245,232 @@ impl World {
             .collect()
     }
 
-    pub fn declare(&mut self, a: usize, b: usize, parent: Option<usize>, goals: Vec<Term>) -> usize {
-        {
-            let r = self.rel_mut(a, b);
-            r.trade_treaty = false;
-            r.passage = false;
-            r.stance = Stance::Embargo;
-        }
+    /// Two empires become enemies: embargo, treaties between them cancelled.
+    fn set_enemies(&mut self, a: usize, b: usize) {
+        let r = self.rel_mut(a, b);
+        r.trade_treaty = false;
+        r.passage = false;
+        r.stance = Stance::Embargo;
+    }
+
+    pub fn declare(&mut self, a: usize, b: usize, goals: Vec<Term>) -> usize {
+        self.set_enemies(a, b);
         let id = self.next_war_id;
         self.next_war_id += 1;
         let (sa, sb) = (self.empires[a].strength, self.empires[b].strength);
         let goal_value = crate::treaties::total(self, &goals);
         let desc = crate::treaties::describe_all(self, &goals);
-        self.wars.push(War { id, a, b, start: self.tick, peak_a: sa, peak_b: sb, parent, goals, first_strike_until: -1 });
-        if parent.is_none() {
-            let y = self.year();
-            self.empires[a].wars_started.push(y);
-            crate::alliances::adjust_trust(self, b, a, crate::alliances::TRUST_ATTACKED);
-            let why = format!("attacked {}", self.empires[b].name);
-            crate::alliances::adjust_reputation(self, a, crate::alliances::REP_WAR_OF_CHOICE - crate::treaties::REP_PER_GOAL_POINT * goal_value, &why);
-            let t = format!("WAR: {} declares war on {} (strength {} vs {}){}", self.empires[a].name, self.empires[b].name, sa as i64, sb as i64, if desc.is_empty() { String::new() } else { format!(" - goals: {}", desc) });
-            self.event(t);
-            crate::alliances::call_to_arms(self, a, b, id);
-        }
+        let mut peak = vec![0.0; self.empires.len()];
+        peak[a] = sa;
+        peak[b] = sb;
+        self.wars.push(War { id, sides: [vec![a], vec![b]], start: self.tick, peak, goals, first_strike_until: -1 });
+        let y = self.year();
+        self.empires[a].wars_started.push(y);
+        crate::alliances::adjust_trust(self, b, a, crate::alliances::TRUST_ATTACKED);
+        let why = format!("attacked {}", self.empires[b].name);
+        crate::alliances::adjust_reputation(self, a, crate::alliances::REP_WAR_OF_CHOICE - crate::treaties::REP_PER_GOAL_POINT * goal_value, &why);
+        let t = format!("WAR: {} declares war on {} (strength {} vs {}){}", self.empires[a].name, self.empires[b].name, sa as i64, sb as i64, if desc.is_empty() { String::new() } else { format!(" - goals: {}", desc) });
+        self.event(t);
+        crate::alliances::call_to_arms(self, a, b, id);
         self.on_system_claimed();
         id
     }
 
-    fn fight(&mut self, wi: usize) {
-        let w = self.wars[wi].clone();
-        let (a, b) = (w.a, w.b);
-        let fa = self.fronts(a, b);
-        let fb = self.fronts(b, a);
-        self.empires[a].exhaustion += EXH_PER_MONTH;
-        self.empires[b].exhaustion += EXH_PER_MONTH;
-        if fa.is_empty() && fb.is_empty() {
-            self.check_capitulation(w.id);
+    /// e joins a war on the given side.
+    pub fn join_war(&mut self, war_id: usize, e: usize, side: usize, why: &str) {
+        let wi = match self.war_index(war_id) {
+            Some(i) => i,
+            None => return,
+        };
+        if self.wars[wi].side_of(e).is_some() {
             return;
         }
-        // Allies who joined this war with no front of their own fight on b's front.
-        let helpers: Vec<usize> = self
-            .wars
-            .iter()
-            .filter(|x| x.parent == Some(w.id))
-            .map(|x| x.a)
-            .filter(|&h| self.fronts(h, a).is_empty() && self.fronts(a, h).is_empty())
-            .collect();
-        let sa = self.empires[a].strength * COMMIT;
-        let mut sb = self.empires[b].strength * COMMIT;
-        let sh: f64 = helpers.iter().map(|&h| self.empires[h].strength * COMMIT * 0.5).sum();
-        let mut la = self.empires[a].strength.min(ATTRITION * (sb + sh));
-        let lb_total = ATTRITION * sa;
-        let mut lb = self.empires[b].strength.min(lb_total * sb / (sb + sh).max(0.001));
-        for &h in &helpers {
-            let lh = self.empires[h].strength.min(lb_total * self.empires[h].strength * COMMIT * 0.5 / (sb + sh).max(0.001));
-            self.empires[h].strength -= lh;
-            self.empires[h].exhaustion += EXH_LOSS_WEIGHT * lh / (self.empires[h].strength + lh).max(1.0);
+        self.wars[wi].sides[side].push(e);
+        let s = self.empires[e].strength;
+        self.wars[wi].peak[e] = s;
+        for o in self.wars[wi].sides[1 - side].clone() {
+            self.set_enemies(e, o);
         }
-        if (self.tick as i64) < w.first_strike_until {
-            la *= 0.5;
-            lb *= 1.5;
+        let (lead_own, lead_enemy) = (self.wars[wi].leader(side), self.wars[wi].leader(1 - side));
+        let t = format!("{} joins {}'s side against {} ({})", self.empires[e].name, self.empires[lead_own].name, self.empires[lead_enemy].name, why);
+        self.event(t);
+        self.on_system_claimed();
+    }
+
+    /// Does this member have a front against anyone on the other side?
+    fn has_front(&self, w: &War, m: usize, side: usize) -> bool {
+        w.sides[1 - side].iter().any(|&o| !self.fronts(m, o).is_empty() || !self.fronts(o, m).is_empty())
+    }
+
+    fn fight(&mut self, wi: usize) {
+        let w = self.wars[wi].clone();
+        for m in w.members() {
+            self.empires[m].exhaustion += EXH_PER_MONTH;
         }
-        self.empires[a].strength -= la;
-        self.empires[b].strength -= lb;
-        sb += sh;
-        let (pa, pb) = {
-            let wr = &mut self.wars[wi];
-            wr.peak_a = wr.peak_a.max(self.empires[a].strength);
-            wr.peak_b = wr.peak_b.max(self.empires[b].strength);
-            (wr.peak_a, wr.peak_b)
-        };
-        self.empires[a].exhaustion += EXH_LOSS_WEIGHT * la / pa.max(1.0);
-        self.empires[b].exhaustion += EXH_LOSS_WEIGHT * lb / pb.max(1.0);
-        let sup = sa / (sa + sb).max(0.001);
+        // Committed strength per member: full where it has a front, half where it only sends forces to an ally's front.
+        let mut committed = vec![0.0; self.empires.len()];
+        let mut any_front = false;
+        for side in 0..2 {
+            for &m in &w.sides[side] {
+                let front = self.has_front(&w, m, side);
+                any_front |= front;
+                committed[m] = self.empires[m].strength * COMMIT * if front { 1.0 } else { 0.5 };
+            }
+        }
+        if !any_front {
+            self.check_capitulation(w.id);
+            return; // no shared front: only blockade and exhaustion
+        }
+        let total = |side: usize| w.sides[side].iter().map(|&m| committed[m]).sum::<f64>();
+        let (c0, c1) = (total(0), total(1));
+        let strike = (self.tick as i64) < w.first_strike_until;
+        let loss = [ATTRITION * c1 * if strike { 0.5 } else { 1.0 }, ATTRITION * c0 * if strike { 1.5 } else { 1.0 }];
+        for side in 0..2 {
+            let c = if side == 0 { c0 } else { c1 };
+            for &m in &w.sides[side] {
+                let l = (loss[side] * committed[m] / c.max(0.001)).min(self.empires[m].strength);
+                self.empires[m].strength -= l;
+                let pk = self.wars[wi].peak[m].max(self.empires[m].strength);
+                self.wars[wi].peak[m] = pk;
+                self.empires[m].exhaustion += EXH_LOSS_WEIGHT * l / pk.max(1.0);
+            }
+        }
+        let sup = c0 / (c0 + c1).max(0.001);
         if sup > 0.55 {
-            self.occupy(a, b, &fb, (sup - 0.55) / 0.45);
+            self.occupy(wi, 0, (sup - 0.55) / 0.45);
         } else if sup < 0.45 {
-            self.occupy(b, a, &fa, (0.45 - sup) / 0.45);
+            self.occupy(wi, 1, (0.45 - sup) / 0.45);
         }
         self.check_capitulation(w.id);
     }
 
-    fn occupy(&mut self, winner: usize, loser: usize, loser_fronts: &[usize], edge: f64) {
+    /// The side ahead liberates one of its own occupied systems first, else takes an enemy front system.
+    fn occupy(&mut self, wi: usize, win: usize, edge: f64) {
         if self.rng.randf() >= OCCUPY_RATE * edge {
             return;
         }
-        if let Some(s) = self.systems.iter().position(|s| s.owner == Some(winner) && s.occupier == Some(loser)) {
+        let w = self.wars[wi].clone();
+        let (winners, losers) = (&w.sides[win], &w.sides[1 - win]);
+        if let Some(s) = self.systems.iter().position(|s| s.owner.map_or(false, |o| winners.contains(&o)) && s.occupier.map_or(false, |o| losers.contains(&o))) {
+            let (owner, occ) = (self.systems[s].owner.unwrap(), self.systems[s].occupier.unwrap());
             self.systems[s].occupier = None;
-            let t = format!("{} liberates {} from {}", self.empires[winner].name, self.systems[s].name, self.empires[loser].name);
+            let t = format!("{} liberates {} from {}", self.empires[owner].name, self.systems[s].name, self.empires[occ].name);
             self.event(t);
             self.on_system_claimed();
             return;
         }
-        let cap = self.empires[loser].capital;
-        let targets: Vec<usize> = loser_fronts.iter().cloned().filter(|&s| !self.systems[s].bodies.contains(&cap)).collect();
+        let mut targets: Vec<(usize, usize, usize)> = vec![]; // (system, its owner, occupier-to-be)
+        for &l in losers {
+            let cap = self.empires[l].capital;
+            for &wn in winners {
+                for s in self.fronts(l, wn) {
+                    if !self.systems[s].bodies.contains(&cap) && !targets.iter().any(|t| t.0 == s) {
+                        targets.push((s, l, wn));
+                    }
+                }
+            }
+        }
         if targets.is_empty() {
             return;
         }
-        let t = targets[self.rng.below(targets.len())];
-        self.systems[t].occupier = Some(winner);
-        self.empires[loser].exhaustion += EXH_PER_OCCUPIED;
-        let txt = format!("{} occupies {} ({})", self.empires[winner].name, self.systems[t].name, self.empires[loser].name);
-        self.event(txt);
+        let (s, l, wn) = targets[self.rng.below(targets.len())];
+        self.systems[s].occupier = Some(wn);
+        self.empires[l].exhaustion += EXH_PER_OCCUPIED;
+        let t = format!("{} occupies {} ({})", self.empires[wn].name, self.systems[s].name, self.empires[l].name);
+        self.event(t);
         self.on_system_claimed();
     }
 
     fn check_capitulation(&mut self, war_id: usize) {
-        let w = match self.wars.iter().find(|w| w.id == war_id) {
-            Some(w) => w.clone(),
+        let w = match self.war_index(war_id) {
+            Some(i) => self.wars[i].clone(),
             None => return,
         };
-        for side in [w.a, w.b] {
-            if self.empires[side].exhaustion >= EXH_CAPITULATE {
-                crate::treaties::capitulate(self, war_id, side);
-                return;
+        for side in 0..2 {
+            for &m in &w.sides[side] {
+                if self.empires[m].exhaustion >= EXH_CAPITULATE {
+                    if m == w.leader(side) {
+                        crate::treaties::capitulate(self, war_id, side);
+                    } else {
+                        self.separate_peace(war_id, m, true);
+                    }
+                    return;
+                }
             }
         }
     }
 
-    /// Peace: occupations between the two end (systems return to their owners); terms are applied by the caller.
-    pub fn make_peace(&mut self, war_id: usize, terms: &[Term]) {
-        let w = match self.wars.iter().find(|w| w.id == war_id) {
-            Some(w) => w.clone(),
+    /// A minor member leaves the war: it cedes what the other side occupies of it and gets back what it lost.
+    pub fn separate_peace(&mut self, war_id: usize, m: usize, collapsed: bool) {
+        let wi = match self.war_index(war_id) {
+            Some(i) => i,
             None => return,
         };
-        let (a, b) = (w.a, w.b);
-        for s in self.systems.iter_mut() {
-            if (s.owner == Some(a) && s.occupier == Some(b)) || (s.owner == Some(b) && s.occupier == Some(a)) {
-                s.occupier = None;
+        let side = match self.wars[wi].side_of(m) {
+            Some(s) => s,
+            None => return,
+        };
+        let enemies = self.wars[wi].sides[1 - side].clone();
+        let mut terms = vec![];
+        for s in 0..self.systems.len() {
+            let sy = &self.systems[s];
+            if sy.owner == Some(m) && sy.occupier.map_or(false, |o| enemies.contains(&o)) {
+                terms.push(Term { kind: crate::treaties::TermKind::Cede, system: Some(s), from: m, to: sy.occupier.unwrap() });
+            } else if sy.occupier == Some(m) && sy.owner.map_or(false, |o| enemies.contains(&o)) {
+                self.systems[s].occupier = None;
             }
         }
-        self.wars.retain(|x| x.id != war_id);
-        let children: Vec<usize> = self.wars.iter().filter(|x| x.parent == Some(war_id)).map(|x| x.id).collect();
-        for c in children {
-            self.make_peace(c, &[]);
-        }
+        self.wars[wi].sides[side].retain(|&x| x != m);
         let y = self.year();
-        {
-            let r = self.rel_mut(a, b);
+        for &o in &enemies {
+            let r = self.rel_mut(m, o);
             r.stance = Stance::Hostile;
             r.truce_until = y + TRUCE_YEARS;
             r.opinion = r.opinion.max(-60.0);
         }
+        let desc = if terms.is_empty() { "white peace".to_string() } else { crate::treaties::describe_all(self, &terms) };
+        let t = format!("{} {} the war (separate peace): {}", self.empires[m].name, if collapsed { "collapses and leaves" } else { "leaves" }, desc);
+        self.event(t);
+        let lead = self.wars[wi].leader(1 - side);
+        if !terms.is_empty() {
+            crate::treaties::apply_terms(self, &terms, lead, m, terms.len() as f64 * crate::treaties::VALUE_SYSTEM, false, -1.0);
+        }
+        self.clear_empire_caches();
+        self.on_system_claimed();
+    }
+
+    /// Peace for the whole war: occupations between the sides end (terms are applied by the caller).
+    pub fn make_peace(&mut self, war_id: usize, terms: &[Term]) {
+        let wi = match self.war_index(war_id) {
+            Some(i) => i,
+            None => return,
+        };
+        let w = self.wars.remove(wi);
+        let (s0, s1) = (&w.sides[0], &w.sides[1]);
+        for s in self.systems.iter_mut() {
+            let cross = |o: Option<usize>, p: Option<usize>| match (o, p) {
+                (Some(o), Some(p)) => (s0.contains(&o) && s1.contains(&p)) || (s1.contains(&o) && s0.contains(&p)),
+                _ => false,
+            };
+            if cross(s.owner, s.occupier) {
+                s.occupier = None;
+            }
+        }
+        let y = self.year();
+        for &a in s0 {
+            for &b in s1 {
+                let r = self.rel_mut(a, b);
+                r.stance = Stance::Hostile;
+                r.truce_until = y + TRUCE_YEARS;
+                r.opinion = r.opinion.max(-60.0);
+            }
+        }
+        let names = |v: &Vec<usize>| v.iter().map(|&x| self.empires[x].name.clone()).collect::<Vec<_>>().join(" + ");
         let desc = crate::treaties::describe_all(self, terms);
         let t = format!(
             "PEACE between {} and {} after {} years{}",
-            self.empires[a].name,
-            self.empires[b].name,
+            names(s0),
+            names(s1),
             (self.tick - w.start) / 12,
             if terms.is_empty() { " (white peace)".to_string() } else { format!(": {}", desc) }
         );
@@ -403,7 +520,14 @@ impl World {
         for s in self.systems.iter_mut() {
             s.at_front = false;
         }
-        let pairs: Vec<(usize, usize)> = self.wars.iter().map(|w| (w.a, w.b)).collect();
+        let mut pairs = vec![];
+        for w in &self.wars {
+            for &a in &w.sides[0] {
+                for &b in &w.sides[1] {
+                    pairs.push((a, b));
+                }
+            }
+        }
         for (a, b) in pairs {
             for s in self.fronts(a, b).into_iter().chain(self.fronts(b, a)) {
                 self.systems[s].at_front = true;
