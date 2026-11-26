@@ -337,10 +337,10 @@ impl GalaxySim {
             }
         }
         put(&mut d, "shipments", sh);
-        // Forces: 8 floats each: x, y, owner, army (0/1), strength, dest x, dest y, in operation (0/1)
+        // Forces: 9 floats each: x, y, owner, army (0/1), strength, dest x, dest y, in operation (0/1), id
         let mut fo = PackedFloat32Array::new();
         for f in &snap.forces {
-            for v in [f.pos.0, f.pos.1, f.owner as f64, f.army as i32 as f64, f.strength, f.dest.0, f.dest.1, f.in_op as i32 as f64] {
+            for v in [f.pos.0, f.pos.1, f.owner as f64, f.army as i32 as f64, f.strength, f.dest.0, f.dest.1, f.in_op as i32 as f64, f.id as f64] {
                 fo.push(v as f32);
             }
         }

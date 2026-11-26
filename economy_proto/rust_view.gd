@@ -27,7 +27,7 @@ const MAX_SHIPS := 300
 const SYS_STRIDE := 10     # x, y, owner, occupier, at_front, settled bodies, bodies, pop, known, shortage
 const GOOD_NAMES : Array = ["Ore", "Metal", "Parts", "Food", "Water"]
 const SHIP_STRIDE := 6     # from x, from y, to x, to y, good, qty
-const FORCE_STRIDE := 8    # x, y, owner, army, strength, dest x, dest y, in operation
+const FORCE_STRIDE := 9    # x, y, owner, army, strength, dest x, dest y, in operation, id
 
 var sim
 var snap : Dictionary = {}
@@ -39,6 +39,10 @@ var show_forces : bool = true
 var territory_rect : ColorRect = null
 var territory_sig : String = ""
 var ship_layer : Node2D
+var force_layer : Node2D
+var force_prev : Dictionary = {}   # force id -> position at the previous month
+var force_from : Dictionary = {}   # force id -> position this month's movement starts from
+var force_t : float = 1.0          # 0..1 through the current month (for interpolation)
 var tps : float = 0.0
 var _tps_n : int = 0
 var _tps_t : float = 0.0
@@ -102,6 +106,9 @@ func _ready() -> void:
 	ship_layer = Node2D.new()
 	ship_layer.draw.connect(_draw_ships)
 	add_child(ship_layer)
+	force_layer = Node2D.new()
+	force_layer.draw.connect(_draw_forces_layer)
+	add_child(force_layer)
 	_build_ui()
 
 func _process(delta : float) -> void:
@@ -109,6 +116,18 @@ func _process(delta : float) -> void:
 		return
 	var s : Dictionary = sim.poll()
 	if not s.is_empty():
+		# Forces glide from where they were drawn to this month's position over the next month.
+		if s.has("forces"):
+			var fo : PackedFloat32Array = s["forces"]
+			var from := {}
+			for i in range(0, fo.size(), FORCE_STRIDE):
+				var id : int = int(fo[i + 8])
+				from[id] = _force_drawn_pos(id) if force_prev.has(id) else Vector2(fo[i], fo[i + 1])
+			force_from = from
+			force_prev.clear()
+			for i in range(0, fo.size(), FORCE_STRIDE):
+				force_prev[int(fo[i + 8])] = Vector2(fo[i], fo[i + 1])
+			force_t = 0.0
 		snap = s
 		_tps_n += s["tick"] - _last_tick if _last_tick >= 0 else 0
 		_last_tick = s["tick"]
@@ -151,7 +170,9 @@ func _process(delta : float) -> void:
 		for sp in ships:
 			sp[3] += SHIP_SPEED * delta * minf(months_per_second / 6.0, 4.0)
 		ships = ships.filter(func(sp): return sp[3] < sp[4])
+		force_t = minf(force_t + delta * months_per_second, 1.0)
 	ship_layer.queue_redraw()
+	force_layer.queue_redraw()
 
 func _unhandled_input(e : InputEvent) -> void:
 	if sim == null:
@@ -357,8 +378,6 @@ func _draw() -> void:
 				draw_arc(p, r + 4.0, k * TAU / 12.0, k * TAU / 12.0 + TAU / 24.0, 4, Color(1.0, 0.25, 0.2, 0.9), 2.0)
 		if show_labels and settled > 0:
 			draw_string(font, p + Vector2(-r, -r - 4.0), "%s %d/%d" % [names[i / SYS_STRIDE], settled, int(sys[i + 6])], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.75))
-	if show_forces and snap.has("forces"):
-		_draw_forces(snap["forces"])
 	if sel_empire >= 0 and sel_empire < emps.size():
 		var c : Vector2 = emps[sel_empire]["capital"]
 		draw_arc(c, 16.0, 0.0, TAU, 40, _empire_color(sel_empire), 2.0)
@@ -391,32 +410,47 @@ func _note(t : String) -> void:
 	_toast_t = 3.0
 	toast.modulate.a = 1.0
 
+## Where a force is drawn right now: between last month's drawn position and this month's, by the month's progress.
+func _force_drawn_pos(id : int) -> Vector2:
+	var to : Vector2 = force_prev.get(id, Vector2.ZERO)
+	var from : Vector2 = force_from.get(id, to)
+	return from.lerp(to, force_t)
+
+func _draw_forces_layer() -> void:
+	if show_forces and snap.has("forces"):
+		_draw_forces(snap["forces"])
+
 ## Fleets (triangles) and armies (squares), sized by strength, in their empire's colour. Forces in an operation
 ## show a line to where they are heading; several forces in one system are fanned out so each stays visible.
+## Positions glide smoothly between months.
 func _draw_forces(fo : PackedFloat32Array) -> void:
 	var font : Font = ThemeDB.fallback_font
 	var stacked : Dictionary = {}
+	var L := force_layer
 	for i in range(0, fo.size(), FORCE_STRIDE):
-		var p := Vector2(fo[i], fo[i + 1])
-		var key := Vector2i(int(p.x), int(p.y))
-		var k : int = stacked.get(key, 0)
-		stacked[key] = k + 1
+		var at := Vector2(fo[i], fo[i + 1])
+		var p := _force_drawn_pos(int(fo[i + 8]))
+		var key := Vector2i(int(at.x), int(at.y))
+		var k : int = 0
+		if p.distance_to(at) < 1.0:   # fan out only forces sitting in a system
+			k = stacked.get(key, 0)
+			stacked[key] = k + 1
 		p += Vector2(10.0 + 9.0 * (k % 3), -10.0 - 9.0 * (k / 3))
 		var col := _empire_color(int(fo[i + 2]))
 		var size : float = clampf(2.5 + sqrt(fo[i + 4]) * 0.35, 3.0, 11.0)
 		var dest := Vector2(fo[i + 5], fo[i + 6])
 		if fo[i + 7] > 0.5 and dest.distance_to(Vector2(fo[i], fo[i + 1])) > 1.0:
-			draw_dashed_line(p, dest, Color(col, 0.6), 1.2, 5.0)
+			L.draw_dashed_line(p, dest, Color(col, 0.6), 1.2, 5.0)
 		if fo[i + 3] > 0.5:
-			draw_rect(Rect2(p - Vector2(size, size) * 0.8, Vector2(size, size) * 1.6), col)
-			draw_rect(Rect2(p - Vector2(size, size) * 0.8, Vector2(size, size) * 1.6), Color(0, 0, 0, 0.8), false, 1.0)
+			L.draw_rect(Rect2(p - Vector2(size, size) * 0.8, Vector2(size, size) * 1.6), col)
+			L.draw_rect(Rect2(p - Vector2(size, size) * 0.8, Vector2(size, size) * 1.6), Color(0, 0, 0, 0.8), false, 1.0)
 		else:
 			var tri := PackedVector2Array([p + Vector2(0, -size), p + Vector2(size * 0.9, size * 0.7), p + Vector2(-size * 0.9, size * 0.7)])
-			draw_colored_polygon(tri, col)
+			L.draw_colored_polygon(tri, col)
 			tri.append(tri[0])
-			draw_polyline(tri, Color(0, 0, 0, 0.8), 1.0)
+			L.draw_polyline(tri, Color(0, 0, 0, 0.8), 1.0)
 		if show_labels and fo[i + 4] >= 20.0:
-			draw_string(font, p + Vector2(size + 2, 4), str(int(fo[i + 4])), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.8))
+			L.draw_string(font, p + Vector2(size + 2, 4), str(int(fo[i + 4])), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.8))
 
 ## Event log colours: war red, peace green, crises orange, operations and battles amber, politics violet.
 func _event_color(line : String) -> Color:
