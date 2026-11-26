@@ -137,13 +137,17 @@ static func fronts(sim, side, enemy) -> Array:
 	var theirs : Array = sim.all_systems().filter(func(s): return s.owner == enemy)
 	return mine.filter(func(s): return theirs.any(func(t): return t.position.distance_to(s.position) <= sim.BORDER_RANGE))
 
-static func declare(sim, a, b) -> void:
+## parent: the war this one joins (an ally answering a call to arms), or null for a war of choice.
+static func declare(sim, a, b, parent = null) -> void:
 	var r : Dictionary = sim._rel(a, b)
 	r["trade_treaty"] = false; r["passage"] = false
 	r["stance"] = "embargo"
-	sim.wars.append({"a": a, "b": b, "start": sim.tick_count, "peak_a": a.strength, "peak_b": b.strength})
-	a.wars_started.append(sim.tick_count / 12)
-	sim._event("WAR: %s declares war on %s (strength %d vs %d)" % [a.name, b.name, a.strength, b.strength])
+	var w : Dictionary = {"a": a, "b": b, "start": sim.tick_count, "peak_a": a.strength, "peak_b": b.strength, "parent": parent}
+	sim.wars.append(w)
+	if parent == null:
+		a.wars_started.append(sim.tick_count / 12)
+		sim._event("WAR: %s declares war on %s (strength %d vs %d)" % [a.name, b.name, a.strength, b.strength])
+		Alliances.call_to_arms(sim, a, b, w)
 	sim.on_system_claimed()   # routes change with stances
 
 static func _fight(sim, w : Dictionary) -> void:
@@ -154,11 +158,22 @@ static func _fight(sim, w : Dictionary) -> void:
 	if fa.is_empty() and fb.is_empty():
 		_check_capitulation(sim, w)
 		return                      # no shared front: only blockade and exhaustion
+	# Allies who joined this war (against a, on b's side) fight alongside b on b's front
+	# (only those with no front of their own against a: they send forces to b's front instead)
+	var helpers : Array = sim.wars.filter(func(x): return x.get("parent") == w and fronts(sim, x["a"], a).is_empty() and fronts(sim, a, x["a"]).is_empty()).map(func(x): return x["a"])
 	var sa : float = a.strength * COMMIT
 	var sb : float = b.strength * COMMIT
-	var la : float = minf(a.strength, ATTRITION * sb)
-	var lb : float = minf(b.strength, ATTRITION * sa)
+	var sh : float = 0.0
+	for h in helpers: sh += h.strength * COMMIT * 0.5
+	var la : float = minf(a.strength, ATTRITION * (sb + sh))
+	var lb_total : float = ATTRITION * sa
+	var lb : float = minf(b.strength, lb_total * sb / maxf(sb + sh, 0.001))
+	for h in helpers:
+		var lh : float = minf(h.strength, lb_total * h.strength * COMMIT * 0.5 / maxf(sb + sh, 0.001))
+		h.strength -= lh
+		h.exhaustion += EXH_LOSS_WEIGHT * lh / maxf(h.strength + lh, 1.0)
 	a.strength -= la; b.strength -= lb
+	sb += sh
 	w["peak_a"] = maxf(w["peak_a"], a.strength); w["peak_b"] = maxf(w["peak_b"], b.strength)
 	a.exhaustion += EXH_LOSS_WEIGHT * la / maxf(w["peak_a"], 1.0)
 	b.exhaustion += EXH_LOSS_WEIGHT * lb / maxf(w["peak_b"], 1.0)
@@ -216,6 +231,9 @@ static func make_peace(sim, w : Dictionary) -> void:
 			winner.known[s] = true
 			ceded.append("%s -> %s" % [s.name, winner.name])
 	sim.wars.erase(w)
+	for child in sim.wars.duplicate():
+		if child.get("parent") == w:
+			make_peace(sim, child)          # allies who joined this war make peace with it
 	var gain_a : int = ceded.filter(func(c): return c.ends_with(a.name)).size()
 	var gain_b : int = ceded.size() - gain_a
 	a.systems_taken += gain_a; b.systems_taken += gain_b

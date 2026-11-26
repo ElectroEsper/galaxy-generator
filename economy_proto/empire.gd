@@ -30,6 +30,7 @@ var max_threat : float = 0.0
 var main_threat : int = -1
 var wars_started : Array = []         # years
 var systems_taken : int = 0
+var guarantees : Array = []          # ids of empires this one has promised to protect (alliances.gd)
 var sys_history : Array = []          # systems owned, one entry per year          # taxes collected this month (the military budget is a share of it)
 var mil_spent : float = 0.0
 var arming_until : int = 0            # year until which the planner wants extra armament

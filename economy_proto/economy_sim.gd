@@ -855,13 +855,13 @@ func _esum(field : String, fallback):
 	for e in empires: t += e.get(field)
 	return t
 
-const RELATION_HEADER := "tick,a,b,met,opinion,stance,border,trade,incidents,trade_treaty,passage,goodwill"
+const RELATION_HEADER := "tick,a,b,met,opinion,stance,border,trade,incidents,trade_treaty,passage,goodwill,pact,guarantees"
 func relation_rows() -> Array:
 	var rows : Array = []
 	for i in empires.size():
 		for j in range(i + 1, empires.size()):
 			var r : Dictionary = _rel(empires[i], empires[j])
-			rows.append("%d,%d,%d,%d,%.1f,%s,%d,%.1f,%.2f,%d,%d,%.1f" % [tick_count, i, j, 1 if r["met"] else 0, r["opinion"], r["stance"], r["border"], r["trade"], r["incidents"], 1 if r["trade_treaty"] else 0, 1 if r["passage"] else 0, r["goodwill"]])
+			rows.append("%d,%d,%d,%d,%.1f,%s,%d,%.1f,%.2f,%d,%d,%.1f,%d,%s" % [tick_count, i, j, 1 if r["met"] else 0, r["opinion"], r["stance"], r["border"], r["trade"], r["incidents"], 1 if r["trade_treaty"] else 0, 1 if r["passage"] else 0, r["goodwill"], 1 if r.get("pact", false) else 0, "/".join(PackedStringArray(([str(i) + ">" + str(j)] if empires[i].guarantees.has(j) else []) + ([str(j) + ">" + str(i)] if empires[j].guarantees.has(i) else [])))])
 	return rows
 
 ## Per-empire metrics, one row per empire (see EMPIRE_HEADER).

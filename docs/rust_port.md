@@ -87,7 +87,7 @@ pub struct World {
     pub corps: Vec<Corp>,                 // corporation.gd (dead corps removed between ticks; ids never reused)
     pub empires: Vec<Empire>,             // empire.gd
     pub relations: PairMatrix<Relation>,  // upper triangle, N*(N-1)/2 entries (economy_sim._rel)
-    pub wars: Vec<War>,                   // military.gd
+    pub wars: Vec<War>,                   // military.gd; War { a, b, start, peaks, parent: Option<WarId> }
     pub events: Vec<Event>,
     pub rng: SimRng,                      // section 7
     pub caches: Caches,                   // boards, route geometry, memos (rebuildable, never saved)
@@ -136,6 +136,7 @@ roll per pixel then a shuffle. The two images must have the same size.
 | `diplomacy.gd` | `core::diplomacy::{facts, actions, goals, planner}` | GOAP: facts, actions, goals, planner search, execution |
 | `personality.gd` | `core::personality` | traits, weights, drift, event shifts, regime change |
 | `threat.gd` | `core::threat` | threat scores, main threat, common threats |
+| `alliances.gd` | `core::alliances` | pacts, guarantees, call to arms, effective strength, lapsing |
 | `run_headless_csv.gd` | `galaxy_cli` | argument parsing, output |
 | `economy_view.gd` | stays GDScript | reads `SimNode.snapshot()` instead of live objects |
 
@@ -235,10 +236,14 @@ Each feature in the prototype, with what the port must carry. New rows are added
 | War: strength, fronts, occupation, exhaustion, peace | `military.gd` | strength, exhaustion, wars (start, peaks), occupier per system, truce per pair |
 | Army budget: target strength from smoothed income | `military.gd` | `avg_tax`, `target_strength` |
 | Personality: 7 traits, drift, regime change | `personality.gd` | `traits`, `base_traits`, `stability`, `regime_year`; trait order: aggression, expansion, mercantile, xenophobia, militarism, caution, intervention |
+| Pacts and guarantees | `alliances.gd` | `Relation.pact`, `pact_year`; `Empire.guarantees` (ids); `War.parent` (the war an ally joined) |
 | Threat assessment | `threat.gd` | `threat[]` per empire, `main_threat`, `wars_started` (years), `systems_taken`, `sys_history` (yearly) |
 
 ## 11. Changelog
 
+- 2026-11-25: added pacts and guarantees (`core::alliances`). Wars gain a `parent` link: an ally's war joins the
+  original one, fights on its front when it has none of its own, and ends with it. Store wars in a slot map so the
+  link survives removals.
 - 2026-11-25: added image-driven galaxy placement (section 4a) and the astro modules to the module map.
 - 2026-11-25: document created. Covers the prototype up to war, personalities, army target strength and threat
   assessment.

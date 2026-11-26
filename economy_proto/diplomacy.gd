@@ -40,6 +40,10 @@ static func _actions(sim, e, others : Array) -> Array:
 			"pre": {"hostile:%d" % i: true, "stronger:%d" % i: true, "war:%d" % i: false, "tired": false}, "eff": {"war:%d" % i: true}})
 		acts.append({"name": "declare_war", "x": x, "cost": 5.0 + 12.0 * (1.0 - Personality.t(e, "aggression")),     # war of conquest: no grievance needed, only want
 			"pre": {"covet:%d" % i: true, "stronger:%d" % i: true, "war:%d" % i: false, "tired": false}, "eff": {"war:%d" % i: true}})
+		acts.append({"name": "propose_pact", "x": x, "cost": 2.0,
+			"pre": {"met:%d" % i: true, "op_ok:%d" % i: true, "pact:%d" % i: false, "war:%d" % i: false}, "eff": {"pact:%d" % i: true}})
+		acts.append({"name": "offer_guarantee", "x": x, "cost": 2.5,
+			"pre": {"met:%d" % i: true, "guar:%d" % i: false, "war:%d" % i: false}, "eff": {"guar:%d" % i: true}})
 		acts.append({"name": "sue_for_peace", "x": x, "cost": 1.0,
 			"pre": {"war:%d" % i: true}, "eff": {"war:%d" % i: false}})
 	return acts
@@ -60,7 +64,9 @@ static func _facts(sim, e, others : Array) -> Dictionary:
 		f["op_good:%d" % i] = r["opinion"] >= OP_GOOD
 		f["reach:%d" % i] = r["opinion"] >= OP_OK - AID_GOODWILL * 0.8   # one gesture can bring them round
 		f["hostile:%d" % i] = r["met"] and sim.tick_count / 12 >= r.get("truce_until", 0) and (r["stance"] == "hostile" or r["stance"] == "embargo" or (r["opinion"] < 0.0 and r["border"] >= RIVAL_BORDER))
-		f["stronger:%d" % i] = e.strength > x.strength * Personality.attack_ratio(e)
+		f["stronger:%d" % i] = e.strength > Alliances.effective_strength(sim, x, e) * Personality.attack_ratio(e)
+		f["pact:%d" % i] = r.get("pact", false)
+		f["guar:%d" % i] = e.guarantees.has(i)
 		f["common_threat:%d" % i] = Threat.common_threat(sim, e, x)
 		f["war:%d" % i] = sim.wars.any(func(w): return (w["a"] == e and w["b"] == x) or (w["a"] == x and w["b"] == e))
 	return f
@@ -127,6 +133,21 @@ static func _goals(sim, e, others : Array) -> Array:
 				best = x
 		if best != null:
 			goals.append({"name": "expand into %s (no free land left)" % best.name, "priority": 0.9 * Personality.w(e, "expansion") * Personality.w(e, "aggression"), "want": {"war:%d" % best.id: true}})
+	# Alliances against the main threat: a pact with someone who fears it too; a guarantee for a small buffer state
+	# that stands between us and it.
+	if e.main_threat >= 0 and e.max_threat >= Threat.NOTE_LEVEL:
+		var t = sim.empires[e.main_threat]
+		var partner = null
+		for y in others:
+			if y == t or sim._rel(e, y).get("pact", false) or not sim._rel(e, y)["met"]: continue
+			if y.threat.get(t.id, 0.0) >= Threat.NOTE_LEVEL and (partner == null or y.strength > partner.strength):
+				partner = y
+		if partner != null:
+			goals.append({"name": "contain %s with %s" % [t.name, partner.name], "priority": (0.6 + 0.3 * minf(e.max_threat, 3.0)) * Personality.w(e, "caution"), "want": {"pact:%d" % partner.id: true}})
+		for y in others:
+			if y == t or e.guarantees.has(y.id) or not sim._rel(e, y)["met"]: continue
+			if y.strength < t.strength * 0.5 and sim._rel(y, t)["border"] > 0 and sim._rel(e, y)["border"] > 0:
+				goals.append({"name": "shield %s from %s" % [y.name, t.name], "priority": 0.8 * Personality.w(e, "intervention"), "want": {"guar:%d" % y.id: true}})
 	goals.sort_custom(func(a, b): return a["priority"] > b["priority"])
 	return goals
 
@@ -205,6 +226,7 @@ static func _accepts_passage(sim, z, e) -> bool:
 static func yearly(sim) -> void:
 	Threat.yearly(sim)
 	Personality.yearly(sim)
+	Alliances.yearly(sim)
 	for e in sim.empires:
 		_turn(sim, e)
 
@@ -222,7 +244,7 @@ static func _turn(sim, e) -> void:
 		var a : Dictionary = p[0]
 		var x = a["x"]
 		var cool : int = PEACE_COOLDOWN if a["name"] == "sue_for_peace" else REFUSAL_COOLDOWN
-		if e.refusals.get(x.id, -100) + cool > year and a["name"] in ["propose_trade", "propose_passage", "sue_for_peace"]:
+		if e.refusals.get(x.id, -100) + cool > year and a["name"] in ["propose_trade", "propose_passage", "sue_for_peace", "propose_pact", "offer_guarantee"]:
 			continue
 		_execute(sim, e, x, a, goal, year)
 		return                                   # one diplomatic initiative per year
@@ -262,6 +284,22 @@ static func _execute(sim, e, x, a : Dictionary, goal : Dictionary, year : int) -
 			else:
 				e.refusals[x.id] = year
 				sim._event("%s sues for peace with %s: refused" % [e.name, x.name])
+		"propose_pact":
+			if Alliances.accepts_pact(sim, x, e):
+				r["pact"] = true; r["pact_year"] = year
+				r["opinion"] = minf(100.0, r["opinion"] + 10.0)
+				sim._event("%s and %s sign a defensive pact (goal: %s)" % [e.name, x.name, goal["name"]])
+			else:
+				e.refusals[x.id] = year
+				sim._event("%s refuses a pact with %s" % [x.name, e.name])
+		"offer_guarantee":
+			if Alliances.accepts_guarantee(sim, x, e):
+				e.guarantees.append(x.id)
+				r["opinion"] = minf(100.0, r["opinion"] + 5.0)
+				sim._event("%s guarantees the independence of %s (goal: %s)" % [e.name, x.name, goal["name"]])
+			else:
+				e.refusals[x.id] = year
+				sim._event("%s declines %s's protection" % [x.name, e.name])
 		"propose_passage":
 			if _accepts_passage(sim, x, e):
 				r["passage"] = true
