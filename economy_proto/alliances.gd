@@ -12,6 +12,7 @@ const PACT_MIN_YEARS := 10          # pacts last at least this long before they 
 const LAPSE_THREAT := 0.8           # a pact lapses when neither side fears anyone this much any more
 const BETRAYAL_OPINION := 30.0      # opinion lost when an ally refuses the call
 const JOIN_EXHAUSTION := 40.0       # too exhausted to join above this
+const BETRAYAL_YEARS := 15          # no new pact or guarantee between betrayer and betrayed for this long
 
 # ---------------------------------------------------------------- Queries
 static func has_pact(sim, a, b) -> bool:
@@ -36,7 +37,7 @@ static func effective_strength(sim, x, attacker) -> float:
 ## x accepts a pact from e if it fears someone too (ideally the same empire), doesn't dislike e, and isn't at war with it.
 static func accepts_pact(sim, x, e) -> bool:
 	var r : Dictionary = sim._rel(e, x)
-	if r["opinion"] < -10.0 or _at_war(sim, e, x):
+	if r["opinion"] < -10.0 or not can_ally(sim, e, x):
 		return false
 	if e.main_threat >= 0 and x.threat.get(e.main_threat, 0.0) >= Threat.NOTE_LEVEL:
 		return true
@@ -44,7 +45,17 @@ static func accepts_pact(sim, x, e) -> bool:
 
 ## Protection is almost always welcome, unless the protected empire distrusts the guarantor.
 static func accepts_guarantee(sim, x, e) -> bool:
-	return sim._rel(e, x)["opinion"] >= -20.0 and not _at_war(sim, e, x)
+	return sim._rel(e, x)["opinion"] >= -20.0 and can_ally(sim, e, x)
+
+## New pacts and guarantees: not with an empire at war (signing would mean joining it), not between enemies, and not
+## within BETRAYAL_YEARS of one abandoning the other.
+static func can_ally(sim, a, b) -> bool:
+	if in_any_war(sim, a) or in_any_war(sim, b):
+		return false
+	return sim.tick_count / 12 >= sim._rel(a, b).get("betrayed_until", 0)
+
+static func in_any_war(sim, x) -> bool:
+	return sim.wars.any(func(w): return w["a"] == x or w["b"] == x)
 
 static func _at_war(sim, a, b) -> bool:
 	return sim.wars.any(func(w): return (w["a"] == a and w["b"] == b) or (w["a"] == b and w["b"] == a))
@@ -69,6 +80,7 @@ static func call_to_arms(sim, attacker, defender, war : Dictionary) -> void:
 		else:
 			var r : Dictionary = sim._rel(y, defender)
 			r["opinion"] = maxf(-100.0, r["opinion"] - BETRAYAL_OPINION)
+			r["betrayed_until"] = sim.tick_count / 12 + BETRAYAL_YEARS
 			if pact:
 				r["pact"] = false
 			else:

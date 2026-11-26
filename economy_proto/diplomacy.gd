@@ -139,13 +139,13 @@ static func _goals(sim, e, others : Array) -> Array:
 		var t = sim.empires[e.main_threat]
 		var partner = null
 		for y in others:
-			if y == t or sim._rel(e, y).get("pact", false) or not sim._rel(e, y)["met"]: continue
+			if y == t or sim._rel(e, y).get("pact", false) or not sim._rel(e, y)["met"] or not Alliances.can_ally(sim, e, y): continue
 			if y.threat.get(t.id, 0.0) >= Threat.NOTE_LEVEL and (partner == null or y.strength > partner.strength):
 				partner = y
 		if partner != null:
 			goals.append({"name": "contain %s with %s" % [t.name, partner.name], "priority": (0.6 + 0.3 * minf(e.max_threat, 3.0)) * Personality.w(e, "caution"), "want": {"pact:%d" % partner.id: true}})
 		for y in others:
-			if y == t or e.guarantees.has(y.id) or not sim._rel(e, y)["met"]: continue
+			if y == t or e.guarantees.has(y.id) or not sim._rel(e, y)["met"] or not Alliances.can_ally(sim, e, y): continue
 			if y.strength < t.strength * 0.5 and sim._rel(y, t)["border"] > 0 and sim._rel(e, y)["border"] > 0:
 				goals.append({"name": "shield %s from %s" % [y.name, t.name], "priority": 0.8 * Personality.w(e, "intervention"), "want": {"guar:%d" % y.id: true}})
 	goals.sort_custom(func(a, b): return a["priority"] > b["priority"])
