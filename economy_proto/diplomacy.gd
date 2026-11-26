@@ -146,7 +146,7 @@ static func _goals(sim, e, others : Array) -> Array:
 			goals.append({"name": "contain %s with %s" % [t.name, partner.name], "priority": (0.6 + 0.3 * minf(e.max_threat, 3.0)) * Personality.w(e, "caution"), "want": {"pact:%d" % partner.id: true}})
 		for y in others:
 			if y == t or e.guarantees.has(y.id) or not sim._rel(e, y)["met"] or not Alliances.can_ally(sim, e, y): continue
-			if y.strength < t.strength * 0.5 and sim._rel(y, t)["border"] > 0 and sim._rel(e, y)["border"] > 0:
+			if not y.guarantees.has(e.id) and y.strength < t.strength * Alliances.SMALL and sim._rel(y, t)["border"] > 0 and sim._rel(e, y)["border"] > 0:
 				goals.append({"name": "shield %s from %s" % [y.name, t.name], "priority": 0.8 * Personality.w(e, "intervention"), "want": {"guar:%d" % y.id: true}})
 	goals.sort_custom(func(a, b): return a["priority"] > b["priority"])
 	return goals
@@ -294,7 +294,7 @@ static func _execute(sim, e, x, a : Dictionary, goal : Dictionary, year : int) -
 				sim._event("%s refuses a pact with %s" % [x.name, e.name])
 		"offer_guarantee":
 			if Alliances.accepts_guarantee(sim, x, e):
-				e.guarantees.append(x.id)
+				e.guarantees[x.id] = {"against": e.main_threat, "year": year}
 				r["opinion"] = minf(100.0, r["opinion"] + 5.0)
 				sim._event("%s guarantees the independence of %s (goal: %s)" % [e.name, x.name, goal["name"]])
 			else:

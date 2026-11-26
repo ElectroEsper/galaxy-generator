@@ -12,6 +12,9 @@ const PACT_MIN_YEARS := 10          # pacts last at least this long before they 
 const LAPSE_THREAT := 0.8           # a pact lapses when neither side fears anyone this much any more
 const BETRAYAL_OPINION := 30.0      # opinion lost when an ally refuses the call
 const JOIN_EXHAUSTION := 40.0       # too exhausted to join above this
+const SMALL := 0.5                  # a guarantee protects an empire weaker than this x the threat...
+const SMALL_END := 0.7              # ... and ends once it is this strong (a gap, so it doesn't flip every year)
+const GUARANTEE_MIN_YEARS := 5
 const BETRAYAL_YEARS := 15          # no new pact or guarantee between betrayer and betrayed for this long
 
 # ---------------------------------------------------------------- Queries
@@ -103,8 +106,13 @@ static func yearly(sim) -> void:
 				r["pact"] = false
 				sim._event("The pact between %s and %s lapses" % [a.name, b.name])
 	for g in sim.empires:
-		for xid in g.guarantees.duplicate():
+		for xid in g.guarantees.keys():
 			var x = sim.empires[xid]
-			if x.strength > g.strength * 0.8 or g.max_threat < LAPSE_THREAT:
+			var info : Dictionary = g.guarantees[xid]
+			if year - info["year"] < GUARANTEE_MIN_YEARS:
+				continue
+			var t = sim.empires[info["against"]] if info["against"] >= 0 else null
+			var safe : bool = t == null or x.strength >= t.strength * SMALL_END or sim._rel(x, t)["border"] == 0
+			if safe or g.threat.get(info["against"], 0.0) < LAPSE_THREAT:
 				g.guarantees.erase(xid)
 				sim._event("%s ends its guarantee of %s" % [g.name, x.name])
