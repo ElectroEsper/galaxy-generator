@@ -5,11 +5,14 @@ extends RefCounted
 ## Wars are fought monthly along fronts (systems near the enemy's): Lanchester-style attrition, occupation of enemy front
 ## systems by the side with the upper hand, war exhaustion, and peace terms that cede occupied systems.
 
-# Spending: share of the empire's monthly tax income put into the military
+# Army size: an empire keeps the army whose upkeep is this share of its (smoothed) monthly tax income, x militarism
 const SHARE_UNMET := 0.0             # no contact with anyone: no military (a lone empire behaves exactly as before)
-const SHARE_PEACE := 0.05
-const SHARE_ARMING := 0.20           # while the planner has decided to arm (ARMING_YEARS)
-const SHARE_WAR := 0.35
+const SHARE_PEACE := 0.10            # x (1 + threat, capped)
+const SHARE_ARMING := 0.25           # while the planner has decided to arm (ARMING_YEARS)
+const SHARE_WAR := 0.40
+const THREAT_CAP := 2.0
+const BUILD_RATE := 0.05             # of the target, per month
+const DEMOBILIZE := 0.02             # of the excess, per month
 const ARMING_YEARS := 5
 # Cost of one point of strength, and its upkeep
 const UNIT_CASH := 20.0
@@ -43,17 +46,27 @@ static func monthly(sim) -> void:
 		if not sim.wars.any(func(w): return w["a"] == e or w["b"] == e):
 			e.exhaustion = maxf(0.0, e.exhaustion - EXH_RECOVER)
 
+## Share of smoothed monthly income the empire is willing to spend on upkeep: sets its target army size.
 static func _share(sim, e) -> float:
+	var m : float = 0.3 + 1.4 * Personality.t(e, "militarism")
 	if sim.wars.any(func(w): return w["a"] == e or w["b"] == e):
-		return SHARE_WAR
+		return SHARE_WAR * m
 	if sim.tick_count / 12 < e.arming_until:
-		return SHARE_ARMING * (0.3 + 1.4 * Personality.t(e, "militarism"))
+		return SHARE_ARMING * m
 	var met : bool = sim.empires.any(func(x): return x != e and sim._rel(e, x)["met"])
-	return SHARE_PEACE * (0.3 + 1.4 * Personality.t(e, "militarism")) if met else SHARE_UNMET
+	return SHARE_PEACE * m * (1.0 + minf(e.max_threat, THREAT_CAP)) if met else SHARE_UNMET
 
-## Pay upkeep, then buy new strength with this month's military budget (goods from the capital's shelves, at its prices).
+## Target strength: what the empire's chosen share of income can keep up.
+static func target_strength(sim, e) -> float:
+	var cap : ColonyMarket = e.capital
+	var upkeep_unit : float = UPKEEP_CASH + UPKEEP_PARTS * cap.price[Goods.PARTS]
+	return _share(sim, e) * e.avg_tax / upkeep_unit
+
+## Monthly: pay upkeep, then build toward the target (paid from the treasury, goods from the capital) or stand down.
 static func _fund(sim, e) -> void:
 	var cap : ColonyMarket = e.capital
+	e.avg_tax = 0.95 * e.avg_tax + 0.05 * e.month_tax
+	e.month_tax = 0.0
 	# Upkeep
 	if e.strength > 0.0:
 		var cash_need : float = e.strength * UPKEEP_CASH
@@ -66,14 +79,17 @@ static func _fund(sim, e) -> void:
 		e.mil_spent += cost
 		if parts_got < parts_need * 0.99 or e.treasury < 0.0:
 			e.strength *= 1.0 - UNPAID_DECAY
-	# New strength
-	var budget : float = _share(sim, e) * e.month_tax
-	e.month_tax = 0.0
-	if budget <= 0.0 or e.treasury <= 0.0:
+	var target : float = target_strength(sim, e)
+	e.target_strength = target
+	if e.strength > target * 1.1:
+		e.strength -= (e.strength - target) * DEMOBILIZE    # stand down slowly
 		return
-	budget = minf(budget, e.treasury)
+	if e.strength >= target or e.treasury <= 0.0:
+		return
+	# Build: at most BUILD_RATE of the target per month, and no more than a tenth of the treasury
 	var unit : float = UNIT_CASH + UNIT_METAL * cap.price[Goods.METAL] + UNIT_PARTS * cap.price[Goods.PARTS]
-	var n : float = budget / unit
+	var n : float = minf(target - e.strength, maxf(target * BUILD_RATE, 1.0))
+	n = minf(n, e.treasury * 0.1 / unit)
 	cap.note_use(Goods.METAL, n * UNIT_METAL)
 	cap.note_use(Goods.PARTS, n * UNIT_PARTS)
 	n = minf(n, minf(cap.stock[Goods.METAL] / UNIT_METAL, cap.stock[Goods.PARTS] / UNIT_PARTS))
@@ -97,6 +113,7 @@ static func declare(sim, a, b) -> void:
 	r["trade_treaty"] = false; r["passage"] = false
 	r["stance"] = "embargo"
 	sim.wars.append({"a": a, "b": b, "start": sim.tick_count, "peak_a": a.strength, "peak_b": b.strength})
+	a.wars_started.append(sim.tick_count / 12)
 	sim._event("WAR: %s declares war on %s (strength %d vs %d)" % [a.name, b.name, a.strength, b.strength])
 	sim.on_system_claimed()   # routes change with stances
 
@@ -172,6 +189,7 @@ static func make_peace(sim, w : Dictionary) -> void:
 	sim.wars.erase(w)
 	var gain_a : int = ceded.filter(func(c): return c.ends_with(a.name)).size()
 	var gain_b : int = ceded.size() - gain_a
+	a.systems_taken += gain_a; b.systems_taken += gain_b
 	if gain_a > gain_b: Personality.on_peace(sim, a, b, gain_a)
 	elif gain_b > gain_a: Personality.on_peace(sim, b, a, gain_b)
 	var r : Dictionary = sim._rel(a, b)

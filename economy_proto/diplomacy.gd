@@ -61,6 +61,7 @@ static func _facts(sim, e, others : Array) -> Dictionary:
 		f["reach:%d" % i] = r["opinion"] >= OP_OK - AID_GOODWILL * 0.8   # one gesture can bring them round
 		f["hostile:%d" % i] = r["met"] and sim.tick_count / 12 >= r.get("truce_until", 0) and (r["stance"] == "hostile" or r["stance"] == "embargo" or (r["opinion"] < 0.0 and r["border"] >= RIVAL_BORDER))
 		f["stronger:%d" % i] = e.strength > x.strength * Personality.attack_ratio(e)
+		f["common_threat:%d" % i] = Threat.common_threat(sim, e, x)
 		f["war:%d" % i] = sim.wars.any(func(w): return (w["a"] == e and w["b"] == x) or (w["a"] == x and w["b"] == e))
 	return f
 
@@ -112,7 +113,7 @@ static func _goals(sim, e, others : Array) -> Array:
 				goals.append({"name": "end the war with %s" % x.name, "priority": 5.0, "want": {"war:%d" % x.id: false}})
 			continue
 		var hostile : bool = r["met"] and (r["stance"] == "hostile" or r["stance"] == "embargo" or (r["opinion"] < 0.0 and r["border"] >= RIVAL_BORDER))
-		if hostile and x.strength > e.strength:
+		if (hostile or e.threat.get(x.id, 0.0) >= 1.5) and x.strength > e.strength:
 			goals.append({"name": "deter %s" % x.name, "priority": (1.0 + r["border"] / 10.0) * Personality.w(e, "caution"), "want": {"stronger:%d" % x.id: true}})
 		if hostile and Personality.t(e, "aggression") >= 0.25 and r["border"] >= WAR_BORDER and sim.tick_count / 12 >= r.get("truce_until", 0) and e.exhaustion < 20.0:
 			goals.append({"name": "seize the border with %s" % x.name, "priority": (0.8 + r["border"] / 15.0) * Personality.w(e, "aggression"), "want": {"war:%d" % x.id: true}})
@@ -202,6 +203,7 @@ static func _accepts_passage(sim, z, e) -> bool:
 
 # ---------------------------------------------------------------- Yearly turn
 static func yearly(sim) -> void:
+	Threat.yearly(sim)
 	Personality.yearly(sim)
 	for e in sim.empires:
 		_turn(sim, e)
