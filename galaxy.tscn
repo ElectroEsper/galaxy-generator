@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://vd3avofyinmx"]
-
-[ext_resource type="Script" uid="uid://bsgex1g5egup1" path="res://galaxy.gd" id="1_i8bsd"]
-
-[node name="galaxy" type="Node" unique_id=742143868]
-script = ExtResource("1_i8bsd")
