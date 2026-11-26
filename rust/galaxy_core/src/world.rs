@@ -149,6 +149,8 @@ pub struct Empire {
     pub base_traits: [f64; 7],
     /// Index of the personality archetype in cfg.personalities.
     pub archetype: usize,
+    /// Year it last claimed a new system by settling (land hunger grows when expansion stalls).
+    pub last_expansion: i64,
     /// Trait blocks (indices into cfg.personalities.blocks) and the effect multipliers they give.
     pub blocks: Vec<usize>,
     pub fx: [f64; crate::personality::NFX],
@@ -615,6 +617,7 @@ impl World {
                 traits: [0.5; 7],
                 base_traits: [0.5; 7],
                 archetype: 0,
+                last_expansion: 0,
                 blocks: vec![],
                 fx: [1.0; crate::personality::NFX],
                 stability: 0.5,
@@ -892,6 +895,7 @@ impl World {
         if let Some(s) = self.colonies[c].system {
             if self.systems[s].owner.is_none() {
                 self.systems[s].owner = Some(e);
+                self.empires[e].last_expansion = self.year();
                 self.on_system_claimed();
             }
         }
@@ -1652,7 +1656,7 @@ impl World {
 
 /// Save files: a magic tag and format version, then the whole World (bincode). Loading resumes exactly where the save
 /// was made, caches and random streams included.
-const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x06";
+const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x07";
 
 impl World {
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {

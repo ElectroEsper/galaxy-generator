@@ -416,3 +416,9 @@ Telemetry from a 207-year run showed: 8 wars, two of them lasting zero months; 2
 Results:
 - **10 seeds (46 systems, 6 empires, 200 years):** wars mean 6.0 (0–11), 1 peaceful galaxy, no empire reduced to one system, top/bottom ratio 4.2, population unchanged.
 - **1,000 systems, 32 empires:** still very few wars (0 and 4 in two seeds). Empires that covet a neighbour's land mostly arm to deter it, and the target arms back; with dozens of pacts, a neighbour's allied strength is rarely beatable. Next lever: weigh only allies near the front in `effective_strength`.
+
+### Big maps: allies by reach, stalled expansion
+- **Allies by reach.** `alliances::reach(y, x, attacker)` counts an ally's whole strength if it borders either party. Otherwise it is scaled by REACH_RANGE / distance between capitals (250, floor 0.15). It is used in `effective_strength` (the planner's "stronger?" check) and in war forecasts, for coalition members and likely joiners.
+- **Stalled expansion.** An empire is also land-hungry when it hasn't settled a new system in `HUNGER_STALL_YEARS` (20) ÷ (0.5 + expansion) years. On big maps, free land never runs out but stops being worth settling. Save format v7 (`Empire::last_expansion`).
+
+Result at 1,000 systems and 32 empires over 207 years: 0 → 5 wars and 4 → 6 wars on the two test seeds, with "expand into" goals now appearing (35 in one run). Small galaxies: wars mean 5.4 (0–15).

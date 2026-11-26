@@ -36,11 +36,25 @@ pub fn effective_strength(w: &World, x: usize, attacker: usize) -> f64 {
     let mut s = w.empires[x].strength;
     for y in defenders_of(w, x) {
         if y != attacker && !has_pact(w, y, attacker) {
-            s += ALLY_WEIGHT * w.empires[y].strength * (w.empires[y].reputation / 50.0).clamp(0.2, 1.5);
+            s += ALLY_WEIGHT * w.empires[y].strength * (w.empires[y].reputation / 50.0).clamp(0.2, 1.5) * reach(w, y, x, attacker);
         }
     }
     s
 }
+
+/// How much of ally y's strength can reach a war between `x` and `attacker` (0.15..1): all of it if y borders either
+/// of them, otherwise falling off with the distance between y's capital and the nearer of the two capitals.
+pub fn reach(w: &World, y: usize, x: usize, attacker: usize) -> f64 {
+    if w.rel(y, x).border > 0 || w.rel(y, attacker).border > 0 {
+        return 1.0;
+    }
+    let cap = |e: usize| w.colonies[w.empires[e].capital].pos;
+    let d = crate::market::dist(cap(y), cap(x)).min(crate::market::dist(cap(y), cap(attacker)));
+    (REACH_RANGE / d.max(1.0)).clamp(0.15, 1.0)
+}
+
+/// Capital distance within which an ally's whole strength counts (beyond it, it falls off as REACH_RANGE / distance).
+pub const REACH_RANGE: f64 = 250.0;
 
 /// How much a trusts b.
 pub fn trust(w: &World, a: usize, b: usize) -> f64 {
