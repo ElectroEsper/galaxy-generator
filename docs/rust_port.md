@@ -399,3 +399,20 @@ How to export:
 - **CLI:** `telemetry=<dir>`.
 
 Save format v5.
+
+### Balance pass from a 32-empire, 1,000-system playthrough
+Telemetry from a 207-year run showed: 8 wars, two of them lasting zero months; 21-empire coalitions; rich empires with no military (because they couldn't get Parts); and logs flooded by opinion flips, aid and claim incidents. Changes:
+- **Forecast joiners:** the forecast now also expects empires friendly to the defender, or afraid of the attacker, to join (at low odds). No suing for peace in a war's first 6 months (`MIN_WAR_MONTHS`).
+- **Crisis backing:** fear moves only empires with a stake, meaning a border with either side.
+- **Savings fund an army:** `target_strength` adds what the treasury could pay for over 10 years (`WEALTH_YEARS`, `WEALTH_SHARE` 0.25, scaled by militarism), capped at the income-based target. Units can import missing military goods from non-hostile markets with spare stock (price ≤ 1.2 × base), at a 40% markup and at most 5% of each market's stock. Upkeep still uses own stock only.
+- **Land hunger is relative:** an empire is hungry when free systems within reach number fewer than 0.3 × (0.5 + expansion) × systems held. Before, it needed no free system at all.
+- **Consolidation:** war-goal systems are chosen by contiguity first, meaning the share of their jump-lane neighbours the attacker already owns (enclaves and salients), then population. Peace terms already give each occupied system to its occupier.
+- **Log:**
+  - Stances have a 10-point hysteresis margin, and neutral ↔ friendly changes are no longer logged (they are still in relations.csv).
+  - Aid is logged when a programme starts, not every year.
+  - Claim-jumping incidents are counted (`claim_incidents` in summary.json), not logged.
+- **Personality column:** the personality field in empires.csv is quoted.
+
+Results:
+- **10 seeds (46 systems, 6 empires, 200 years):** wars mean 6.0 (0–11), 1 peaceful galaxy, no empire reduced to one system, top/bottom ratio 4.2, population unchanged.
+- **1,000 systems, 32 empires:** still very few wars (0 and 4 in two seeds). Empires that covet a neighbour's land mostly arm to deter it, and the target arms back; with dozens of pacts, a neighbour's allied strength is rarely beatable. Next lever: weigh only allies near the front in `effective_strength`.

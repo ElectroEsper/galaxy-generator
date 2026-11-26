@@ -32,6 +32,8 @@ pub const TRADE_WEIGHT: f64 = 8.0;
 pub const BORDER_WEIGHT: f64 = 3.0;
 pub const INCIDENT_PENALTY: f64 = 15.0;
 pub const INCIDENT_DECAY: f64 = 0.98;
+/// Opinion must move this far past a stance threshold to leave that stance.
+pub const STANCE_MARGIN: f64 = 10.0;
 pub const OPINION_RATE: f64 = 0.05;
 pub const TERRITORY_RADIUS: f64 = 70.0;
 pub const ROUTE_SAMPLE: f64 = 20.0;
@@ -264,6 +266,8 @@ pub struct World {
     /// Separate random stream for personality, so it never shifts the economy's random numbers.
     pub prng: Rng,
     pub events: Vec<(u32, String)>,
+    /// Systems settled that another empire had surveyed (claim-jumping incidents).
+    pub claim_incidents: u32,
     pub promotions: i32,
     pub attractions: i32,
     pub settlements: i32,
@@ -329,6 +333,7 @@ impl World {
             empires: vec![],
             relations: vec![],
             events: vec![],
+            claim_incidents: 0,
             promotions: 0,
             attractions: 0,
             settlements: 0,
@@ -1351,8 +1356,8 @@ impl World {
             if self.systems[s].bodies.iter().any(|&b| self.colonies[b].surveys_by(other) > 0) {
                 self.rel_mut(e, other).incidents += 1.0;
                 crate::personality::shift(self, other, TRAIT_XENOPHOBIA, self.cfg.personalities.rules.incident_drift, "");
-                let t = format!("{} settled {}, which {} had surveyed (incident)", self.empires[e].name, self.systems[s].name, self.empires[other].name);
-                self.event(t);
+                // Counted (relations' incidents, claim_incidents), not logged: there are thousands in a big galaxy.
+                self.claim_incidents += 1;
             }
         }
     }
@@ -1407,11 +1412,14 @@ impl World {
                 if at_war[a * n + b] {
                     continue; // at war: stance stays "embargo" until peace
                 }
-                let st = if r.opinion >= 25.0 {
+                // Thresholds with hysteresis: a stance holds until opinion moves STANCE_MARGIN past its threshold,
+                // so relations near a boundary don't flip back and forth every month.
+                let h = |cur: bool| if cur { STANCE_MARGIN } else { 0.0 };
+                let st = if r.opinion >= 25.0 - h(r.stance == Stance::Friendly) {
                     Stance::Friendly
-                } else if r.opinion <= -60.0 {
+                } else if r.opinion <= -60.0 + h(r.stance == Stance::Embargo) {
                     Stance::Embargo
-                } else if r.opinion <= -25.0 {
+                } else if r.opinion <= -25.0 + h(matches!(r.stance, Stance::Hostile | Stance::Embargo)) {
                     Stance::Hostile
                 } else {
                     Stance::Neutral
@@ -1424,8 +1432,12 @@ impl World {
                         r.trade_treaty = false;
                         r.passage = false;
                     }
-                    let t = format!("{} and {}: {} -> {} (opinion {})", self.empires[a].name, self.empires[b].name, old.name(), st.name(), op as i64);
-                    self.event(t);
+                    // Neutral <-> friendly drift is routine (it's in relations.csv); log turns toward or away from hostility.
+                    let routine = matches!((old, st), (Stance::Neutral, Stance::Friendly) | (Stance::Friendly, Stance::Neutral));
+                    if !routine {
+                        let t = format!("{} and {}: {} -> {} (opinion {})", self.empires[a].name, self.empires[b].name, old.name(), st.name(), op as i64);
+                        self.event(t);
+                    }
                     if cancel {
                         let t = format!("{} and {}: treaties cancelled", self.empires[a].name, self.empires[b].name);
                         self.event(t);
@@ -1640,7 +1652,7 @@ impl World {
 
 /// Save files: a magic tag and format version, then the whole World (bincode). Loading resumes exactly where the save
 /// was made, caches and random streams included.
-const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x05";
+const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x06";
 
 impl World {
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {

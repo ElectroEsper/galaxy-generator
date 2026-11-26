@@ -193,6 +193,7 @@ impl World {
             "date": format!("year {}, month {}", self.tick / 12, self.tick % 12 + 1),
             "wars": self.telemetry.wars.len(),
             "wars_ongoing": self.wars.len(),
+            "claim_incidents": self.claim_incidents,
             "events_by_category": cats,
             "standings": standings,
             "files": ["galaxy.csv", "empires.csv", "relations.csv", "events.csv", "wars.csv"],

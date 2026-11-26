@@ -15,6 +15,13 @@ pub const DEMOBILIZE: f64 = 0.02;
 pub const ARMING_YEARS: i64 = 5;
 pub const UNIT_CASH: f64 = 20.0;
 pub const UPKEEP_CASH: f64 = 0.5;
+pub const WEALTH_YEARS: f64 = 10.0;
+/// Military goods an empire lacks are imported at this markup, up to this share of each foreign market's stock.
+pub const IMPORT_MARKUP: f64 = 1.4;
+pub const IMPORT_SHARE: f64 = 0.05;
+pub const WEALTH_SHARE: f64 = 0.25;
+/// No suing for peace in a war's first months (it has barely begun).
+pub const MIN_WAR_MONTHS: u32 = 6;
 pub const UNPAID_DECAY: f64 = 0.02;
 pub const ATTRITION: f64 = 0.01;
 pub const COMMIT: f64 = 0.7;
@@ -144,10 +151,67 @@ impl World {
         let cap = self.empires[e].capital;
         let upkeep_unit = UPKEEP_CASH + goods::MILITARY_UPKEEP.iter().map(|&(g, q)| q * self.colonies[cap].price[g]).sum::<f64>();
         let mut t = self.share(e) * self.empires[e].avg_tax / upkeep_unit;
+        // Savings: an empire sitting on a fortune keeps an army it could pay for from its treasury for WEALTH_YEARS
+        // (scaled by militarism), so rich empires stop being defenceless.
+        let met = (0..self.empires.len()).any(|x| x != e && self.rel(e, x).met);
+        if met && self.empires[e].treasury > 0.0 {
+            let m = (0.3 + 1.4 * self.empires[e].t(TRAIT_MILITARISM)) * self.empires[e].fx(crate::personality::FX_ARMY_BUDGET);
+            // Capped at the income-based target again (at least 50): savings fill a gap, they don't start an arms race.
+            let extra = WEALTH_SHARE * m * self.empires[e].treasury / (upkeep_unit * 12.0 * WEALTH_YEARS);
+            t += extra.min(t.max(50.0));
+        }
         if self.empires[e].demilitarized_until > self.year() {
             t *= crate::treaties::DEMILITARIZE_CAP;
         }
         t
+    }
+
+    /// Stock of g an empire could import: markets of empires it is not at war with and that don't embargo it.
+    fn import_sources(&self, e: usize, g: usize) -> Vec<usize> {
+        self.markets
+            .iter()
+            .cloned()
+            .filter(|&c| self.colonies[c].price[g] <= crate::market::BASE_PRICE * 1.2) // only markets with spare stock
+            .filter(|&c| match self.colonies[c].owner {
+                Some(o) if o != e => !self.at_war(e, o) && !matches!(self.rel(e, o).stance, crate::world::Stance::Embargo | crate::world::Stance::Hostile),
+                _ => false,
+            })
+            .collect()
+    }
+
+    fn import_stock(&self, e: usize, g: usize) -> f64 {
+        self.import_sources(e, g).iter().map(|&c| (self.colonies[c].stock[g] * IMPORT_SHARE).max(0.0)).sum()
+    }
+
+    /// For building units: buy from the empire's colonies first, then (for what is missing) from foreign markets with
+    /// spare stock, at IMPORT_MARKUP over their price, taking at most IMPORT_SHARE of each market's stock.
+    fn buy_for_units(&mut self, e: usize, g: usize, qty: f64) -> (f64, f64) {
+        let (got, cost) = self.buy(e, g, qty);
+        if got >= qty * 0.999 {
+            return (got, cost);
+        }
+        let mut src = self.import_sources(e, g);
+        src.sort_by(|&a, &b| self.colonies[a].price[g].partial_cmp(&self.colonies[b].price[g]).unwrap().then(a.cmp(&b)));
+        let (mut got, mut cost) = (got, cost);
+        for c in src {
+            if got >= qty {
+                break;
+            }
+            let take = (self.colonies[c].stock[g] * IMPORT_SHARE).min(qty - got);
+            if take <= 0.0 {
+                continue;
+            }
+            self.colonies[c].stock[g] -= take;
+            got += take;
+            let paid = take * self.colonies[c].price[g];
+            cost += paid * IMPORT_MARKUP;
+            // The seller's market is paid (its colony treasury isn't modelled; the owner empire collects customs).
+            if let Some(o) = self.colonies[c].owner {
+                self.empires[o].customs_collected += paid * (IMPORT_MARKUP - 1.0);
+                self.empires[o].treasury += paid * (IMPORT_MARKUP - 1.0);
+            }
+        }
+        (got, cost)
     }
 
     /// Buy up to qty of g from the empire's colonies, cheapest first. Returns (bought, cost).
@@ -223,7 +287,8 @@ impl World {
         let mut n = (target - s).min((target * BUILD_RATE).max(1.0));
         n = n.min(self.empires[e].treasury * 0.1 / unit_est);
         for &(g, q) in goods::MILITARY_UNIT {
-            let avail: f64 = self.empire_colonies(e).iter().map(|&c| self.colonies[c].stock[g]).sum();
+            // Own stock first, then imports from neutral and friendly markets (see buy).
+            let avail: f64 = self.empire_colonies(e).iter().map(|&c| self.colonies[c].stock[g]).sum::<f64>() + self.import_stock(e, g);
             self.note_military(e, g, n * q);
             n = n.min(avail / q);
         }
@@ -232,7 +297,7 @@ impl World {
         }
         let mut cost = n * UNIT_CASH;
         for &(g, q) in goods::MILITARY_UNIT {
-            cost += self.buy(e, g, n * q).1;
+            cost += self.buy_for_units(e, g, n * q).1;
         }
         let em = &mut self.empires[e];
         em.treasury -= cost;
