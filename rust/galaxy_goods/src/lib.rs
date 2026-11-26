@@ -45,7 +45,7 @@ pub fn recipe(g: usize) -> Option<Recipe> {
 }
 
 /// A small ordered good -> value map (keeps insertion order, like the GDScript dictionaries it replaces).
-#[derive(Clone, Default, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default, Debug)]
 pub struct Rich(pub Vec<(usize, f64)>);
 
 impl Rich {

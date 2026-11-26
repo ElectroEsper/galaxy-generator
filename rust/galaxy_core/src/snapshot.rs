@@ -4,7 +4,7 @@
 use crate::goods;
 use crate::world::World;
 
-#[derive(Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct SysView {
     pub name: String,
     pub pos: (f64, f64),
@@ -20,7 +20,7 @@ pub struct SysView {
 }
 
 /// One body of a system, for the info panel.
-#[derive(Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct BodyView {
     pub name: String,
     pub class: String,
@@ -34,7 +34,7 @@ pub struct BodyView {
     pub facilities: i32,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct SystemDetail {
     pub id: usize,
     pub name: String,
@@ -44,7 +44,7 @@ pub struct SystemDetail {
     pub bodies: Vec<BodyView>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct EmpireView {
     pub name: String,
     pub capital: (f64, f64),
@@ -59,7 +59,7 @@ pub struct EmpireView {
     pub at_war_with: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct Snapshot {
     pub tick: u32,
     pub date: String,

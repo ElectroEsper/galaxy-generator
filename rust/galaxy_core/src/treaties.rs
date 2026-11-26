@@ -32,7 +32,7 @@ pub const REV_REPUDIATE: f64 = 40.0;
 pub const REP_REPUDIATE: f64 = 10.0;
 pub const REP_PER_GREED: f64 = 15.0;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TermKind {
     Cede,
     Reparations,
@@ -42,7 +42,7 @@ pub enum TermKind {
     Humiliate,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Term {
     pub kind: TermKind,
     pub system: Option<usize>,
@@ -50,7 +50,7 @@ pub struct Term {
     pub to: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Reparations {
     pub payer: usize,
     pub payee: usize,
@@ -59,7 +59,7 @@ pub struct Reparations {
 }
 
 /// A grudge against a victor: level 0..100, the systems claimed back, and when it was last fed.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Revanche {
     pub victor: usize,
     pub level: f64,

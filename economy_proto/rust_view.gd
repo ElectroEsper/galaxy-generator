@@ -3,7 +3,8 @@ extends Node2D
 ## this view polls for the newest month and redraws from that snapshot only, so drawing never waits on the sim.
 ## Build the library first:  cd rust && cargo build --release -p galaxy_gd
 ## Controls: [space] pause, [up/down] speed, [T] ships, [L] labels, [+/-] zoom, drag with the right mouse button,
-## left-click a system for its bodies, deposits and prices ([Esc] closes the panel).
+## left-click a system for its bodies, deposits and prices ([Esc] closes the panel), [F5] quicksave, [F9] quickload,
+## [Ctrl+S] save as a new slot, [M] main menu. Started from the main menu, it uses GameSetup's settings or save.
 
 @export var systems : int = 46
 @export var empires : int = 4
@@ -47,11 +48,23 @@ func _ready() -> void:
 	sim = ClassDB.instantiate("GalaxySim")
 	add_child(sim)
 	sim.set_speed(months_per_second)
-	var cfg : Dictionary = {"systems": systems, "empires": empires, "planets": planets, "seed": sim_seed}
+	var cfg : Dictionary = {"systems": systems, "empires": empires, "planets": planets, "seed": sim_seed,
+		"personalities": GameSetup.personalities_json()}
 	if use_maps:
 		cfg["density_map"] = density_map
 		cfg["population_map"] = population_map
-	sim.start(cfg)
+	if not GameSetup.config.is_empty():
+		cfg = GameSetup.config
+	if GameSetup.load_path != "":
+		var err : String = sim.load_game(GameSetup.load_path)
+		GameSetup.load_path = ""
+		if err != "":
+			push_error("Load failed: " + err)
+			sim.start(cfg)
+		else:
+			_note("Loaded")
+	else:
+		sim.start(cfg)
 	ship_layer = Node2D.new()
 	ship_layer.draw.connect(_draw_ships)
 	add_child(ship_layer)
@@ -104,6 +117,13 @@ func _unhandled_input(e : InputEvent) -> void:
 				show_ships = not show_ships
 				if not show_ships: ships.clear()
 			KEY_L: show_labels = not show_labels
+			KEY_F5: _save(GameSetup.QUICKSAVE)
+			KEY_F9: _load(GameSetup.QUICKSAVE)
+			KEY_S:
+				if e.ctrl_pressed: _save("%s/%s.sav" % [GameSetup.SAVE_DIR, Time.get_datetime_string_from_system().replace(":", "-")])
+			KEY_M:
+				sim.stop(); GameSetup.config = {}
+				get_tree().change_scene_to_file("res://economy_proto/main_menu.tscn")
 			KEY_ESCAPE:
 				selected = -1; detail = {}; queue_redraw()
 			KEY_EQUAL, KEY_KP_ADD: scale *= 1.25
@@ -266,3 +286,20 @@ func _draw_ships() -> void:
 		var pos : Vector2 = sp[0] + dir * sp[3]
 		var pts := PackedVector2Array([pos + dir * 6.0, pos + dir.rotated(2.5) * 4.0, pos + dir.rotated(-2.5) * 4.0])
 		ship_layer.draw_colored_polygon(pts, GOOD_COLORS[sp[2] % GOOD_COLORS.size()])
+
+func _save(path : String) -> void:
+	DirAccess.make_dir_recursive_absolute(GameSetup.SAVE_DIR)
+	var err : String = sim.save_game(path)
+	_note("Saved " + path.get_file().get_basename() if err == "" else "Save failed: " + err)
+
+func _load(path : String) -> void:
+	if not FileAccess.file_exists(path):
+		_note("No save at " + path.get_file()); return
+	var err : String = sim.load_game(path)
+	if err == "":
+		ships.clear(); selected = -1; detail = {}; _last_tick = -1; territory_sig = ""
+	_note("Loaded " + path.get_file().get_basename() if err == "" else "Load failed: " + err)
+
+func _note(t : String) -> void:
+	log_lines.append("** " + t)
+	queue_redraw()

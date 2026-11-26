@@ -22,7 +22,7 @@ pub const WAR_BORDER: i32 = 5;
 pub const PEACE_COOLDOWN: i64 = 2;
 
 // ---------------------------------------------------------------- Facts
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(usize)]
 pub enum F {
     Cash,
@@ -57,7 +57,7 @@ fn g(f: F) -> usize {
 type State = Vec<bool>;
 type Cond = Vec<(usize, bool)>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
     ProposeTrade,
     ProposePassage,
@@ -70,7 +70,7 @@ pub enum Act {
     JoinWar,
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Action {
     pub act: Act,
     pub x: usize,
@@ -79,7 +79,7 @@ pub struct Action {
     pub eff: Cond,
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Goal {
     pub name: String,
     pub priority: f64,

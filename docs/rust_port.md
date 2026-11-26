@@ -290,3 +290,10 @@ Each feature in the prototype, with what the port must carry. New rows are added
 - 2026-11-25: added image-driven galaxy placement (section 4a) and the astro modules to the module map.
 - 2026-11-25: document created. Covers the prototype up to war, personalities, army target strength and threat
   assessment.
+
+### Personalities as data, main menu, save/load
+- `personality::Book` (JSON) holds archetypes and the drift and regime rules. Each archetype has a name, a description, a weight, a stability range, and a mean and spread per trait. Seven are built in (Balanced, Warlike Expansionists, Merchant Republic, Isolationists, Peacekeepers, Military Junta, Cautious Bureaucracy). Empires are founded from a weighted pick. A regime change adopts a new archetype half the time (`rules.regime_switch`); otherwise the old values jump. The seven traits stay fixed because the sim code reads each one; archetypes are any mix of them.
+- The CLI takes `personalities=file.json` (`personalities=dump` prints the built-in book), `save=file` and `load=file`.
+- GalaxySim adds `save_game`, `load_game`, `default_personalities`, `trait_names` and `validate_personalities`, and `start()` takes a `personalities` key (JSON).
+- Saves are the whole World in bincode behind a magic header. A save loaded and run on is identical to an uninterrupted run (checked over 50 years).
+- Godot: `main_menu.tscn` is now the main scene: galaxy settings, a personality editor saved to user://personalities.json, and the saves list. In the map view: F5 quicksave, F9 quickload, Ctrl+S new slot, M back to the menu.

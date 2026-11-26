@@ -47,7 +47,7 @@ pub const OUTPOST_SETTLERS: f64 = 20.0;
 pub const OUTPOST_PAYBACK: f64 = 60.0;
 pub const BUILD_MONTHS: i32 = 6;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Kind {
     Extractor,
     Producer,
@@ -55,7 +55,7 @@ pub enum Kind {
     Surveyor,
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Facility {
     pub colony: usize,
     pub good: usize,
@@ -95,7 +95,7 @@ impl Facility {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Move {
     pub from: usize,
     pub to: usize,
@@ -103,7 +103,7 @@ pub struct Move {
     pub qty: f64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Corp {
     pub id: usize,
     pub kind: Kind,
@@ -173,7 +173,7 @@ impl Corp {
 }
 
 /// A new-facility or outpost option on the opportunity board.
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Opt {
     pub pb: f64,
     pub i: usize,

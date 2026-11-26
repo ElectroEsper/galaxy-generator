@@ -6,7 +6,7 @@
 use crate::rng::Rng;
 
 // ---------------------------------------------------------------- Database
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pop {
     Pop1,
     Pop1i,
@@ -152,7 +152,7 @@ impl Star {
 }
 
 // ---------------------------------------------------------------- Planet
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BaseType {
     Normal,
     GasGiant,
@@ -435,7 +435,7 @@ pub fn classify(btype: BaseType, volc: u8, t: f64, gh: f64, water_or_ice: bool, 
 /// William's two-map galaxy design: a greyscale density map (pixel brightness = weight for holding a star) and a
 /// colour population map (at a star's pixel, the R, G, B channels are tried brightest first, each passing with a
 /// chance equal to its value: G = Pop I, B = Pop I-i, R = Pop II-i, none = Pop II).
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PlacementMaps {
     pub width: usize,
     pub height: usize,

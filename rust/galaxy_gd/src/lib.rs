@@ -25,6 +25,9 @@ struct Shared {
     detail_req: std::sync::atomic::AtomicI64,
     detail: Mutex<Option<galaxy_core::snapshot::SystemDetail>>,
     events: Mutex<Vec<String>>,
+    /// Save request (absolute path) and its result ("" = ok, otherwise the error).
+    save_req: Mutex<Option<String>>,
+    save_result: Mutex<Option<String>>,
 }
 
 #[derive(GodotClass)]
@@ -47,6 +50,8 @@ impl INode for GalaxySim {
                 detail_req: std::sync::atomic::AtomicI64::new(-1),
                 detail: Mutex::new(None),
                 events: Mutex::new(vec![]),
+                save_req: Mutex::new(None),
+                save_result: Mutex::new(None),
             }),
             thread: None,
             base,
@@ -106,48 +111,80 @@ impl GalaxySim {
             growth: get_or(&config, "growth", true),
             max_corps: get_or::<i64>(&config, "max_corps", 60) as usize,
             food_mult: 1.0,
+            personalities: {
+                let json: GString = get_or(&config, "personalities", GString::new());
+                if json.is_empty() {
+                    Default::default()
+                } else {
+                    match galaxy_core::personality::Book::from_json(&json.to_string()) {
+                        Ok(b) => Arc::new(b),
+                        Err(e) => {
+                            godot_error!("GalaxySim: bad personalities ({}); using the built-in ones", e);
+                            Default::default()
+                        }
+                    }
+                }
+            },
             maps: load_maps(&get_or(&config, "density_map", GString::new()), &get_or(&config, "population_map", GString::new())),
         };
-        let shared = self.shared.clone();
-        shared.stop.store(false, Ordering::SeqCst);
-        self.thread = Some(std::thread::spawn(move || {
-            let mut w = World::new(cfg);
-            *shared.latest.lock().unwrap() = Some(w.snapshot());
-            let mut printed = 0;
-            let mut budget = 0.0f64;
-            let mut last = Instant::now();
-            while !shared.stop.load(Ordering::SeqCst) {
-                let req = shared.detail_req.swap(-1, Ordering::SeqCst);
-                if req >= 0 {
-                    *shared.detail.lock().unwrap() = w.system_detail(req as usize);
-                }
-                let now = Instant::now();
-                let dt = (now - last).as_secs_f64();
-                last = now;
-                if shared.paused.load(Ordering::SeqCst) {
-                    budget = 0.0;
-                    std::thread::sleep(Duration::from_millis(10));
-                    continue;
-                }
-                let speed = f64::from_bits(shared.speed.load(Ordering::SeqCst));
-                budget = (budget + dt * speed).min(2.0); // never build a backlog of more than 2 months
-                if budget < 1.0 {
-                    std::thread::sleep(Duration::from_millis(2));
-                    continue;
-                }
-                budget -= 1.0;
-                w.step();
-                let snap = w.snapshot();
-                *shared.latest.lock().unwrap() = Some(snap);
-                if printed < w.events.len() {
-                    let mut ev = shared.events.lock().unwrap();
-                    for (t, text) in &w.events[printed..] {
-                        ev.push(format!("y{} {}", t / 12, text));
-                    }
-                    printed = w.events.len();
-                }
+        self.spawn(move || World::new(cfg), false);
+    }
+
+    /// Save the running galaxy (res://, user:// or a plain path). Works while paused. Returns "" or an error.
+    #[func]
+    fn save_game(&mut self, path: GString) -> GString {
+        if self.thread.is_none() {
+            return "no galaxy running".into();
+        }
+        let abs = godot::classes::ProjectSettings::singleton().globalize_path(&path).to_string();
+        *self.shared.save_result.lock().unwrap() = None;
+        *self.shared.save_req.lock().unwrap() = Some(abs);
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_secs(10) {
+            if let Some(r) = self.shared.save_result.lock().unwrap().take() {
+                return r.as_str().into();
             }
-        }));
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        "timed out waiting for the sim".into()
+    }
+
+    /// Stop the current galaxy and resume a saved one. Returns "" or an error (the current galaxy keeps running then).
+    #[func]
+    fn load_game(&mut self, path: GString) -> GString {
+        let abs = godot::classes::ProjectSettings::singleton().globalize_path(&path).to_string();
+        let w = match World::load_file(&abs) {
+            Ok(w) => w,
+            Err(e) => return e.as_str().into(),
+        };
+        self.stop();
+        self.spawn(move || w, true);
+        GString::new()
+    }
+
+    /// The built-in personality book as JSON (the editor's starting point).
+    #[func]
+    fn default_personalities() -> GString {
+        galaxy_core::personality::Book::builtin().to_json().as_str().into()
+    }
+
+    /// The trait names archetypes can use.
+    #[func]
+    fn trait_names() -> PackedStringArray {
+        let mut a = PackedStringArray::new();
+        for n in galaxy_core::personality::NAMES {
+            a.push(n);
+        }
+        a
+    }
+
+    /// "" if the JSON is a valid personality book, otherwise what is wrong with it.
+    #[func]
+    fn validate_personalities(json: GString) -> GString {
+        match galaxy_core::personality::Book::from_json(&json.to_string()) {
+            Ok(_) => GString::new(),
+            Err(e) => e.as_str().into(),
+        }
     }
 
     #[func]
@@ -288,5 +325,55 @@ impl GalaxySim {
         }
         put(&mut d, "events", ev);
         d
+    }
+}
+
+impl GalaxySim {
+    fn spawn<F: FnOnce() -> World + Send + 'static>(&mut self, make: F, loaded: bool) {
+        let shared = self.shared.clone();
+        shared.stop.store(false, Ordering::SeqCst);
+        shared.events.lock().unwrap().clear();
+        self.thread = Some(std::thread::spawn(move || {
+            let mut w = make();
+            *shared.latest.lock().unwrap() = Some(w.snapshot());
+            let mut printed = if loaded { w.events.len() } else { 0 };
+            let mut budget = 0.0f64;
+            let mut last = Instant::now();
+            while !shared.stop.load(Ordering::SeqCst) {
+                if let Some(p) = shared.save_req.lock().unwrap().take() {
+                    let r = w.save_file(&p).err().unwrap_or_default();
+                    *shared.save_result.lock().unwrap() = Some(r);
+                }
+                let req = shared.detail_req.swap(-1, Ordering::SeqCst);
+                if req >= 0 {
+                    *shared.detail.lock().unwrap() = w.system_detail(req as usize);
+                }
+                let now = Instant::now();
+                let dt = (now - last).as_secs_f64();
+                last = now;
+                if shared.paused.load(Ordering::SeqCst) {
+                    budget = 0.0;
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                let speed = f64::from_bits(shared.speed.load(Ordering::SeqCst));
+                budget = (budget + dt * speed).min(2.0); // never build a backlog of more than 2 months
+                if budget < 1.0 {
+                    std::thread::sleep(Duration::from_millis(2));
+                    continue;
+                }
+                budget -= 1.0;
+                w.step();
+                let snap = w.snapshot();
+                *shared.latest.lock().unwrap() = Some(snap);
+                if printed < w.events.len() {
+                    let mut ev = shared.events.lock().unwrap();
+                    for (t, text) in &w.events[printed..] {
+                        ev.push(format!("y{} {}", t / 12, text));
+                    }
+                    printed = w.events.len();
+                }
+            }
+        }));
     }
 }

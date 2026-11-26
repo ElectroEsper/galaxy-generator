@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="galaxy_generator"
-run/main_scene="uid://vd3avofyinmx"
+run/main_scene="res://economy_proto/main_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
