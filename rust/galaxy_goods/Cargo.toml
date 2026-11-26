@@ -5,3 +5,4 @@ edition = "2021"
 description = "Goods, recipes and every table of what consumes which goods and why. Edit here to change the economy's goods."
 
 [dependencies]
+serde = { version = "1", features = ["derive", "rc"] }

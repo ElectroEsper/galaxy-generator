@@ -41,7 +41,7 @@ const VIEW_RADIUS: (f64, f64) = (470.0, 250.0);
 /// Half-size of an image-driven galaxy on the map (it is square), before scaling by sqrt(systems / 46).
 const MAP_RADIUS: f64 = 330.0;
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Config {
     pub planets: usize,
     pub systems: usize,
@@ -55,15 +55,17 @@ pub struct Config {
     pub food_mult: f64,
     /// Image-driven star placement; None = stars on a uniform disc.
     pub maps: Option<std::sync::Arc<crate::astro::PlacementMaps>>,
+    /// Personality archetypes and drift rules (editable data; see personality.rs).
+    pub personalities: std::sync::Arc<crate::personality::Book>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { planets: 100, systems: 0, empires: 1, seed: 7, growth: true, colonize: false, taxes: true, state: true, max_corps: 60, food_mult: 1.0, maps: None }
+        Config { planets: 100, systems: 0, empires: 1, seed: 7, growth: true, colonize: false, taxes: true, state: true, max_corps: 60, food_mult: 1.0, maps: None, personalities: Default::default() }
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stance {
     None,
     Friendly,
@@ -91,7 +93,7 @@ impl Stance {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Relation {
     pub met: bool,
     pub opinion: f64,
@@ -124,7 +126,7 @@ impl Default for Relation {
 }
 
 /// One space-faring state (empire.gd). Military, diplomacy and personality fields come with the next port stage.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Empire {
     pub id: usize,
     pub name: String,
@@ -143,6 +145,8 @@ pub struct Empire {
     /// Personality traits, 0..1: aggression, expansion, mercantile, xenophobia, militarism, caution, intervention.
     pub traits: [f64; 7],
     pub base_traits: [f64; 7],
+    /// Index of the personality archetype in cfg.personalities.
+    pub archetype: usize,
     pub stability: f64,
     pub regime_year: i64,
     // Military (military.rs)
@@ -188,7 +192,7 @@ pub struct Empire {
 }
 
 /// Fixed parts of an outpost option for the month: body, good, richness, net unit margin, cost without claim fee.
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct ObRow {
     pub c: usize,
     pub g: usize,
@@ -223,6 +227,7 @@ impl Empire {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct World {
     pub cfg: Config,
     pub rng: Rng,
@@ -238,6 +243,9 @@ pub struct World {
     pub relations: Vec<Relation>,
     pub wars: Vec<crate::military::War>,
     pub next_war_id: usize,
+    /// Diplomatic crises under way (plays.rs).
+    pub plays: Vec<crate::plays::Play>,
+    pub next_play_id: usize,
     /// Separate random stream for personality, so it never shifts the economy's random numbers.
     pub prng: Rng,
     pub events: Vec<(u32, String)>,
@@ -260,6 +268,7 @@ pub struct World {
     pub(crate) lanes: (Vec<Vec<usize>>, Vec<Vec<usize>>),
     pub(crate) lanes_tick: Option<u32>,
     /// Profiling: seconds spent per phase (cumulative).
+    #[serde(skip)]
     pub prof: std::collections::BTreeMap<&'static str, f64>,
     // Caches
     pub(crate) reg_use: Option<PerGood>,
@@ -285,6 +294,8 @@ impl World {
             prng: Rng::new(cfg.seed.wrapping_mul(7919).wrapping_add(12345)),
             wars: vec![],
             next_war_id: 0,
+            plays: vec![],
+            next_play_id: 0,
             cfg,
             tick: 0,
             colonies: vec![],
@@ -574,6 +585,7 @@ impl World {
                 known: vec![false; nsys],
                 traits: [0.5; 7],
                 base_traits: [0.5; 7],
+                archetype: 0,
                 stability: 0.5,
                 regime_year: -100,
                 strength: 0.0,
@@ -1302,7 +1314,7 @@ impl World {
             }
             if self.systems[s].bodies.iter().any(|&b| self.colonies[b].surveys_by(other) > 0) {
                 self.rel_mut(e, other).incidents += 1.0;
-                crate::personality::shift(self, other, TRAIT_XENOPHOBIA, crate::personality::INCIDENT_DRIFT, "");
+                crate::personality::shift(self, other, TRAIT_XENOPHOBIA, self.cfg.personalities.rules.incident_drift, "");
                 let t = format!("{} settled {}, which {} had surveyed (incident)", self.empires[e].name, self.systems[s].name, self.empires[other].name);
                 self.event(t);
             }
@@ -1534,6 +1546,7 @@ impl World {
                 self.lap("relations", &mut t0);
                 self.mark_fronts();
                 self.military_monthly();
+                self.plays_monthly();
                 self.occupation_effects();
                 self.lap("military", &mut t0);
                 if t % 12 == 6 {
@@ -1574,5 +1587,35 @@ impl World {
             }
         }
         self.tick += 1;
+    }
+}
+
+/// Save files: a magic tag and format version, then the whole World (bincode). Loading resumes exactly where the save
+/// was made, caches and random streams included.
+const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x01";
+
+impl World {
+    pub fn save_bytes(&self) -> Result<Vec<u8>, String> {
+        let mut out = SAVE_MAGIC.to_vec();
+        out.extend(bincode::serialize(self).map_err(|e| e.to_string())?);
+        Ok(out)
+    }
+
+    pub fn load_bytes(b: &[u8]) -> Result<World, String> {
+        if b.len() < 8 || &b[..8] != SAVE_MAGIC {
+            return Err("not a galaxy save (or from an incompatible version)".into());
+        }
+        bincode::deserialize(&b[8..]).map_err(|e| format!("corrupt or incompatible save: {}", e))
+    }
+
+    pub fn save_file(&self, path: &str) -> Result<(), String> {
+        if let Some(dir) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(path, self.save_bytes()?).map_err(|e| e.to_string())
+    }
+
+    pub fn load_file(path: &str) -> Result<World, String> {
+        World::load_bytes(&std::fs::read(path).map_err(|e| e.to_string())?)
     }
 }

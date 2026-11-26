@@ -8,6 +8,7 @@ use std::time::Instant;
 fn main() {
     let mut cfg = Config::default();
     let mut ticks: u32 = 600;
+    let (mut save, mut load) = (None::<String>, None::<String>);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), ""));
         match k {
@@ -21,6 +22,18 @@ fn main() {
             "taxes" => cfg.taxes = v != "0",
             "colonize" => cfg.colonize = v == "1",
             "ticks" => ticks = v.parse().unwrap_or(600),
+            // save=<file>: save after the run; load=<file>: resume a save instead of generating a galaxy
+            "save" => save = Some(v.to_string()),
+            "load" => load = Some(v.to_string()),
+            // personalities=<file.json>: archetype book (personalities=dump prints the built-in one and exits)
+            "personalities" => {
+                if v == "dump" {
+                    println!("{}", galaxy_core::personality::Book::builtin().to_json());
+                    return;
+                }
+                let txt = std::fs::read_to_string(v).expect("personalities file");
+                cfg.personalities = std::sync::Arc::new(galaxy_core::personality::Book::from_json(&txt).unwrap_or_else(|e| panic!("{}", e)));
+            }
             // maps=<dir> with spiral_density.png and spiral_population.png (maps=default: the repo's galaxy_maps/)
             "maps" => {
                 let dir = if v == "default" { if std::path::Path::new("galaxy_maps").exists() { "galaxy_maps" } else { "../galaxy_maps" } } else { v };
@@ -30,7 +43,10 @@ fn main() {
         }
     }
     let t0 = Instant::now();
-    let mut w = World::new(cfg);
+    let mut w = match &load {
+        Some(p) => World::load_file(p).unwrap_or_else(|e| panic!("load {}: {}", p, e)),
+        None => World::new(cfg),
+    };
     println!("INFO,setup_ms={:.1},systems={},bodies={}", t0.elapsed().as_secs_f64() * 1000.0, w.systems.len(), w.colonies.len());
     println!("CSV,{}", METRIC_HEADER);
     let multi = w.empires.len() > 1;
@@ -40,7 +56,7 @@ fn main() {
     }
     let wall0 = Instant::now();
     let mut decade0 = Instant::now();
-    let mut printed = 0;
+    let mut printed = if load.is_some() { w.events.len() } else { 0 };
     for t in 0..ticks {
         w.step();
         if t % 4 == 3 {
@@ -66,6 +82,10 @@ fn main() {
     println!("TIME,total_s={:.2}", wall0.elapsed().as_secs_f64());
     for (k, v) in &w.prof {
         println!("PROFILE,{},{:.2}", k, v);
+    }
+    if let Some(p) = save {
+        w.save_file(&p).unwrap_or_else(|e| panic!("save {}: {}", p, e));
+        println!("INFO,saved={},bytes={}", p, std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0));
     }
 }
 

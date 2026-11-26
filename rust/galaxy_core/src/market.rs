@@ -14,14 +14,14 @@ pub const PORT_BASE: i32 = 4;
 pub const PORT_POP_PER_SLOT: f64 = 100.0;
 pub const MAX_EMPIRES: usize = 8;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Claim {
     pub owner: usize, // corporation id
     pub value: f64,
 }
 
 /// What one empire knows about one body.
-#[derive(Clone, Default, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default, Debug)]
 pub struct Intel {
     pub rich: Rich,
     pub found: Rich,
@@ -29,14 +29,14 @@ pub struct Intel {
     pub claims: [Option<Claim>; N],
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Request {
     pub good: usize,
     pub qty: f64,
     pub payer: Option<usize>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Colony {
     pub id: usize,
     pub name: String,
@@ -239,7 +239,7 @@ impl Colony {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct StarSystem {
     pub id: usize,
     pub name: String,

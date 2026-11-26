@@ -32,7 +32,7 @@ pub const REV_REPUDIATE: f64 = 40.0;
 pub const REP_REPUDIATE: f64 = 10.0;
 pub const REP_PER_GREED: f64 = 15.0;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TermKind {
     Cede,
     Reparations,
@@ -42,7 +42,7 @@ pub enum TermKind {
     Humiliate,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Term {
     pub kind: TermKind,
     pub system: Option<usize>,
@@ -50,7 +50,7 @@ pub struct Term {
     pub to: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct Reparations {
     pub payer: usize,
     pub payee: usize,
@@ -59,7 +59,7 @@ pub struct Reparations {
 }
 
 /// A grudge against a victor: level 0..100, the systems claimed back, and when it was last fed.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Revanche {
     pub victor: usize,
     pub level: f64,
@@ -167,6 +167,9 @@ pub fn choose_goals(w: &World, a: usize, b: usize) -> Vec<Term> {
 
 /// The planner chose war on b. Reckless empires strike first; the rest try an ultimatum.
 pub fn go_to_war(w: &mut World, a: usize, b: usize) {
+    if w.in_play(a) || w.in_play(b) {
+        return; // one crisis at a time
+    }
     let goals = choose_goals(w, a, b);
     if w.empires[a].t(TRAIT_AGGRESSION) >= 0.65 && w.empires[a].t(TRAIT_CAUTION) <= 0.4 {
         let why = format!("surprise attack on {}", w.empires[b].name);
@@ -178,6 +181,13 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
         }
         let t = format!("{} strikes {} without warning", w.empires[a].name, w.empires[b].name);
         w.event(t);
+        return;
+    }
+    // Cautious or mercantile empires open a diplomatic play: a demand with a deadline, backers, and war only if
+    // nobody yields.
+    if !goals.is_empty() && (w.empires[a].t(TRAIT_CAUTION) >= 0.5 || w.empires[a].t(TRAIT_MERCANTILE) >= 0.6) {
+        let demands: Vec<Term> = goals.iter().cloned().take(2).collect();
+        w.start_play(a, b, demands, goals);
         return;
     }
     let mut demand: Vec<Term> = goals.iter().cloned().filter(|t| t.kind == TermKind::Cede).take(1).collect();

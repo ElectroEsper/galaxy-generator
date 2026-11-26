@@ -31,7 +31,7 @@ pub const TRUCE_YEARS: i64 = 15;
 
 /// A war between two sides. Side 0 attacked; each side's first member is its leader, who negotiates the peace.
 /// Allies answering a call to arms, coalition members and opportunists join a side; minor members can leave early.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct War {
     pub id: usize,
     pub sides: [Vec<usize>; 2],

@@ -1,6 +1,6 @@
 //! PCG32 random numbers (same family as Godot's), plus the helpers the sim uses.
 
-#[derive(Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Rng {
     state: u64,
     inc: u64,
