@@ -7,3 +7,4 @@ edition = "2021"
 galaxy_core = { path = "../galaxy_core" }
 png = "0.17"
 rayon = "1.10"
+bincode = "1.3"

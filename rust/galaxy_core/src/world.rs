@@ -1632,7 +1632,9 @@ impl World {
             }
         }
         self.tick += 1;
+        let mut tt = std::time::Instant::now();
         self.record_telemetry();
+        self.lap("telemetry", &mut tt);
     }
 }
 
