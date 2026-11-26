@@ -356,7 +356,7 @@ impl World {
     }
 
     /// Every new-facility option for a kind of corporation, best payback first (ties keep scan order).
-    fn opportunity_board(&mut self, kind: Kind, e: Option<usize>) -> std::rc::Rc<Vec<Opt>> {
+    fn opportunity_board(&mut self, kind: Kind, e: Option<usize>) -> std::sync::Arc<Vec<Opt>> {
         let key = (kind as u8, e.map_or(-1, |x| x as i64));
         if let Some(v) = self.boards.get(&key) {
             return v.clone();
@@ -393,14 +393,14 @@ impl World {
             }
         }
         opts.sort_by(cmp_opt);
-        let rc = std::rc::Rc::new(opts);
+        let rc = std::sync::Arc::new(opts);
         self.lap_pub("    board_build", &mut t0);
         self.boards.insert(key, rc.clone());
         rc
     }
 
     /// Outpost options for empire e and raw good g, best payback first.
-    fn outpost_list(&mut self, e: usize, g: usize) -> std::rc::Rc<Vec<Opt>> {
+    fn outpost_list(&mut self, e: usize, g: usize) -> std::sync::Arc<Vec<Opt>> {
         if let Some(v) = self.out_cache.get(&(e, g)) {
             return v.clone();
         }
@@ -423,7 +423,7 @@ impl World {
             }
         }
         opts.sort_by(cmp_opt);
-        let rc = std::rc::Rc::new(opts);
+        let rc = std::sync::Arc::new(opts);
         self.lap_pub("    outpost_list", &mut t0);
         self.out_cache.insert((e, g), rc.clone());
         rc

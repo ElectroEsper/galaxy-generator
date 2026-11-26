@@ -169,7 +169,7 @@ pub struct Empire {
     pub donor_cache: HashMap<u64, Option<usize>>,
     pub donor_any: Option<bool>,
     pub cand_cache: Option<Vec<usize>>,
-    pub ob_cache: Option<std::rc::Rc<Vec<ObRow>>>,
+    pub ob_cache: Option<std::sync::Arc<Vec<ObRow>>>,
     pub known_frontier: Option<Vec<usize>>,
     /// Survey board: (value, scan index, body), best first. Rebuilt when known space or the colony set changes;
     /// a completed survey only re-scores its own row.
@@ -258,8 +258,8 @@ pub struct World {
     // Caches
     pub(crate) reg_use: Option<PerGood>,
     pub(crate) reg_cap: Option<PerGood>,
-    pub(crate) boards: HashMap<(u8, i64), std::rc::Rc<Vec<Opt>>>,
-    pub(crate) out_cache: HashMap<(usize, usize), std::rc::Rc<Vec<Opt>>>,
+    pub(crate) boards: HashMap<(u8, i64), std::sync::Arc<Vec<Opt>>>,
+    pub(crate) out_cache: HashMap<(usize, usize), std::sync::Arc<Vec<Opt>>>,
     route_cache: HashMap<(usize, u64, u64), bool>,
     route_geo: HashMap<(u64, u64), Vec<Vec<usize>>>,
 }
@@ -797,7 +797,7 @@ impl World {
         self.empires[e].cand_cache.as_ref().unwrap().len()
     }
 
-    pub fn outpost_base(&mut self, e: usize) -> std::rc::Rc<Vec<ObRow>> {
+    pub fn outpost_base(&mut self, e: usize) -> std::sync::Arc<Vec<ObRow>> {
         if self.empires[e].ob_cache.is_none() {
             let mut rows = vec![];
             if self.can_send_settlers(e) {
@@ -820,7 +820,7 @@ impl World {
             *self.prof.entry("n_outpost_base_builds").or_insert(0.0) += 1.0;
             *self.prof.entry("n_outpost_rows").or_insert(0.0) += rows.len() as f64;
             *self.prof.entry("n_frontier_scanned").or_insert(0.0) += self.frontier.len() as f64;
-            self.empires[e].ob_cache = Some(std::rc::Rc::new(rows));
+            self.empires[e].ob_cache = Some(std::sync::Arc::new(rows));
         }
         self.empires[e].ob_cache.clone().unwrap()
     }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["galaxy_goods", "galaxy_core", "galaxy_cli"]
+members = ["galaxy_goods", "galaxy_core", "galaxy_cli", "galaxy_gd"]
 
 [profile.release]
 opt-level = 3

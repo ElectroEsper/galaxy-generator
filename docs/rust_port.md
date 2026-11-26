@@ -1,6 +1,6 @@
 # Rust port: design
 
-Status: **stages 1-2 built** (`rust/`): goods crate, economy, colonization, relations, war, diplomacy, personality, threat, alliances, treaties, CLI. Not yet: Godot extension (`galaxy_gd`), image-driven galaxy placement, the planet classifier (names only), parallelism. This document is updated whenever a feature lands in the GDScript prototype
+Status: **built** (`rust/`): goods crate, economy, colonization, relations, war, diplomacy, personality, threat, alliances, treaties, CLI, and the Godot extension (`GalaxySim`, used by `economy_proto/rust_view.tscn`). Not yet: image-driven galaxy placement, the planet classifier (names only), multi-core parallelism, war-gaming. This document is updated whenever a feature lands in the GDScript prototype
 (`economy_proto/`), so the port's shape keeps up with the rules. See the changelog at the end.
 
 ## 1. Why, and when
@@ -244,6 +244,10 @@ Each feature in the prototype, with what the port must carry. New rows are added
 | Threat assessment | `threat.gd` | `threat[]` per empire, `main_threat`, `wars_started` (years), `systems_taken`, `sys_history` (yearly) |
 
 ## 11. Changelog
+
+- 2026-11-25: `galaxy_gd` built (godot-rust 0.5.6, `api-4-7`). `GalaxySim` runs the World on a Rust thread and keeps
+  the newest `Snapshot` (plain data, `galaxy_core::snapshot`); `poll()` turns it into a Dictionary of packed arrays
+  only when a new month is ready. `World` uses `Arc` instead of `Rc` so it can live on that thread.
 
 - 2026-11-25: Rust-only rule fixes found by 500-year runs (not back-ported to GDScript): trade drift is one small
   nudge a year (not one per partner); incident drift 0.02; a regime change jumps from the old regime's values instead
