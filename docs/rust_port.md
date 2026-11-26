@@ -291,6 +291,16 @@ Each feature in the prototype, with what the port must carry. New rows are added
 - 2026-11-25: document created. Covers the prototype up to war, personalities, army target strength and threat
   assessment.
 
+### Diplomatic plays (`plays.rs`)
+A demand with a 12-month deadline. Third parties back a side: pact partners, guarantors, and empires that fear the demander. At month 6 the crisis escalates: both sides arm, more backers are asked, and a neutral interventionist may mediate a compromise (the cheapest demand only). The target concedes when outmatched past its "spine". The demander may back down only after escalation, at a threshold scaled by its aggression; backing down costs reputation and brings a 10-year truce. At the deadline the crisis becomes war, with the backers joining. `go_to_war` picks a route by personality: a first strike for aggressive and reckless empires, a play for cautious or mercantile ones, an ultimatum otherwise.
+
+### Roadmap: data-driven personalities
+Goal: add or change a trait or an archetype without touching sim code.
+- Traits are defined in a data file (`personalities.ron`/`.toml`). Each trait has a name, a default range, a drift rate, a reversion rate, and a regime-change weight. The `TRAIT_*` constants (about 60 uses) become lookups by trait id, resolved once at load time.
+- Archetypes (e.g. "Warlike Expansionists", "Merchant Republic") are named presets. Each gives a trait mean and spread, plus the label used in the UI.
+- Trait effects are expressed as weights in one table rather than scattered literals. One example: the "spine" formula, which today is 0.6×(1−caution) + 0.4×aggression. The table maps decision → trait → weight.
+- Event drifts move here too: concede → caution −0.1, aggression +0.05, and so on, as a table of event → trait shifts.
+- The CLI and GalaxySim accept `personalities=path`. Like `galaxy_goods`, this could live in its own crate (`galaxy_personality`).
 ### Personalities as data, main menu, save/load
 - `personality::Book` (JSON) holds archetypes and the drift and regime rules. Each archetype has a name, a description, a weight, a stability range, and a mean and spread per trait. Seven are built in (Balanced, Warlike Expansionists, Merchant Republic, Isolationists, Peacekeepers, Military Junta, Cautious Bureaucracy). Empires are founded from a weighted pick. A regime change adopts a new archetype half the time (`rules.regime_switch`); otherwise the old values jump. The seven traits stay fixed because the sim code reads each one; archetypes are any mix of them.
 - The CLI takes `personalities=file.json` (`personalities=dump` prints the built-in book), `save=file` and `load=file`.

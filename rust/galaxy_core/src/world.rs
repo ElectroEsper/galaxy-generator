@@ -243,6 +243,9 @@ pub struct World {
     pub relations: Vec<Relation>,
     pub wars: Vec<crate::military::War>,
     pub next_war_id: usize,
+    /// Diplomatic crises under way (plays.rs).
+    pub plays: Vec<crate::plays::Play>,
+    pub next_play_id: usize,
     /// Separate random stream for personality, so it never shifts the economy's random numbers.
     pub prng: Rng,
     pub events: Vec<(u32, String)>,
@@ -291,6 +294,8 @@ impl World {
             prng: Rng::new(cfg.seed.wrapping_mul(7919).wrapping_add(12345)),
             wars: vec![],
             next_war_id: 0,
+            plays: vec![],
+            next_play_id: 0,
             cfg,
             tick: 0,
             colonies: vec![],
@@ -1541,6 +1546,7 @@ impl World {
                 self.lap("relations", &mut t0);
                 self.mark_fronts();
                 self.military_monthly();
+                self.plays_monthly();
                 self.occupation_effects();
                 self.lap("military", &mut t0);
                 if t % 12 == 6 {
