@@ -129,13 +129,13 @@ static func _goals(sim, e, others : Array) -> Array:
 	goals.sort_custom(func(a, b): return a["priority"] > b["priority"])
 	return goals
 
-## No unclaimed charted star system within HUNGER_RANGE of any of e's systems.
+## At least 5 systems, and no unclaimed star system (charted or not) within HUNGER_RANGE of any of e's systems.
 static func _land_hungry(sim, e) -> bool:
 	var mine : Array = sim.all_systems().filter(func(s): return s.owner == e)
-	if mine.is_empty():
+	if mine.size() < 5:
 		return false
 	for s in sim.all_systems():
-		if s.owner == null and e.known.has(s):
+		if s.owner == null:
 			for m in mine:
 				if m.position.distance_to(s.position) <= HUNGER_RANGE:
 					return false
