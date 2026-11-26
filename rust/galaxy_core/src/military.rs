@@ -118,7 +118,7 @@ impl World {
     }
 
     fn share(&self, e: usize) -> f64 {
-        let m = 0.3 + 1.4 * self.empires[e].t(TRAIT_MILITARISM);
+        let m = (0.3 + 1.4 * self.empires[e].t(TRAIT_MILITARISM)) * self.empires[e].fx(crate::personality::FX_ARMY_BUDGET);
         if self.in_any_war(e) {
             return SHARE_WAR * m;
         }

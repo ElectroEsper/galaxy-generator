@@ -6,9 +6,9 @@ func _init() -> void:
 	var book : String = s.default_personalities()
 	print("traits: ", s.trait_names())
 	print("valid default: '", s.validate_personalities(book), "'")
-	print("bad trait: ", s.validate_personalities('{"archetypes":[{"name":"X","traits":{"greed":{"mean":1,"spread":0}}}]}'))
+	print("conflict: ", s.validate_personalities(JSON.stringify({"blocks": JSON.parse_string(book)["blocks"], "archetypes": [{"name": "X", "blocks": ["xenophobe", "xenophile"]}]})))
 	var b = JSON.parse_string(book)
-	b["archetypes"] = [{"name": "Only Warmongers", "weight": 1, "traits": {"aggression": {"mean": 0.95, "spread": 0.0}}}]
+	b["archetypes"] = [{"name": "Only Warmongers", "weight": 1, "blocks": ["militarist", "reckless"]}]
 	s.set_speed(500.0)
 	s.start({"systems": 30, "empires": 3, "seed": 5, "personalities": JSON.stringify(b)})
 	await create_timer(1.5).timeout

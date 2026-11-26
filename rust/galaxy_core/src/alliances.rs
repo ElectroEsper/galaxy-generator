@@ -78,7 +78,7 @@ pub fn can_ally(w: &World, a: usize, b: usize) -> bool {
 
 pub fn accepts_pact(w: &World, x: usize, e: usize) -> bool {
     let r = w.rel(e, x);
-    if r.opinion < -10.0 || !can_ally(w, e, x) || reliance(w, x, e) < PACT_TRUST + 20.0 * w.empires[x].t(TRAIT_XENOPHOBIA) {
+    if r.opinion < -10.0 || !can_ally(w, e, x) || reliance(w, x, e) < (PACT_TRUST + 20.0 * w.empires[x].t(TRAIT_XENOPHOBIA)) * w.empires[x].fx(crate::personality::FX_PACT_TRUST) {
         return false;
     }
     if let Some(t) = w.empires[e].main_threat {
@@ -101,6 +101,7 @@ pub fn call_to_arms(w: &mut World, attacker: usize, defender: usize, war_id: usi
         }
         let pact = has_pact(w, y, defender);
         let mut chance = if pact { 0.6 + 0.4 * (1.0 - w.empires[y].t(TRAIT_CAUTION)) } else { 0.3 + 0.6 * w.empires[y].t(TRAIT_INTERVENTION) };
+        chance = (chance * w.empires[y].fx(crate::personality::FX_CALL_TO_ARMS)).min(1.0);
         if w.empires[y].exhaustion > JOIN_EXHAUSTION {
             chance *= 0.3;
         }

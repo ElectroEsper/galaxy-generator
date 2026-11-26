@@ -316,3 +316,19 @@ What runs in parallel, and why the rest doesn't:
 - **Determinism:** parallel work writes into per-item slots or collects in order, so results don't depend on the thread count (`threads=1`, 2 and 7 are byte-identical). Save/load still resumes identically.
 - **Speed:** 1,000 systems, 8 empires, 100 years: 10.0 s → 5.5 s. Most of the gain comes from planning once per empire rather than once per freighter. This 2-core machine shows little gain from the threads themselves; a timing run on an 8-core desktop is needed.
 - **CLI:** `threads=N`. The Godot extension uses all cores.
+
+### Trait blocks
+A personality is now a set of pluggable **trait blocks** (personality.rs). A block does two things:
+- **Pushes the seven axes** (aggression … intervention) away from the neutral 0.5. The axes feed every decision that reads personality: war goals, treaty demands, crises, trade goals, alliances and drift.
+- **Scales named effects** at specific decisions: `attack_ratio`, `peace_exhaustion`, `spine` (conceding demands), `backing` (crises), `call_to_arms`, `mediation`, `pact_trust`, `tariff`, `army_budget`, `grudge`, `grudge_fade`, `drift`, `regime_change`.
+
+How blocks combine:
+- **Exclusions.** Blocks in the same `group` are mutually exclusive (Militarist/Pacifist, Xenophobe/Xenophile, Mercantile/Autarkic, Interventionist/Isolationist, Cautious/Reckless, Revanchist/Forgiving, Stable/Unstable). `excludes` forbids other pairs (Honourable/Opportunist).
+- **Validation.** The book is checked on load: unknown ids, axes or effects, duplicate ids, and conflicting blocks in a personality are all rejected.
+- **Personalities.** A personality lists block ids, plus a weight, a spread (how much empires of it differ) and a stability range. There are 18 built-in blocks and 8 personalities, including the new "Wounded Empire" (Revanchist, Militarist, Xenophobe).
+- **Regime changes.** Half the time the empire adopts a new personality. Otherwise it is a reform: it drops a block and/or adopts a compatible one (weighted), keeping its own leanings.
+
+Elsewhere:
+- **Editor.** The in-game editor has three tabs. Personalities: tick blocks; conflicts are greyed out and a summary shows the combined result. Trait blocks: id, name, group, exclusions, axis sliders and effect multipliers. Rules.
+- **Old files.** Personality files from before trait blocks are ignored, and the built-in book is used instead.
+- **Saves.** The save format version is now 2. Older saves are refused with a clear message.

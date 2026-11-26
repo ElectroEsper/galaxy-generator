@@ -147,6 +147,9 @@ pub struct Empire {
     pub base_traits: [f64; 7],
     /// Index of the personality archetype in cfg.personalities.
     pub archetype: usize,
+    /// Trait blocks (indices into cfg.personalities.blocks) and the effect multipliers they give.
+    pub blocks: Vec<usize>,
+    pub fx: [f64; crate::personality::NFX],
     pub stability: f64,
     pub regime_year: i64,
     // Military (military.rs)
@@ -212,6 +215,10 @@ pub const TRAIT_INTERVENTION: usize = 6;
 impl Empire {
     pub fn w(&self, t: usize) -> f64 {
         0.5 + self.traits[t]
+    }
+    /// Effect multiplier from the trait blocks (personality::FX_*).
+    pub fn fx(&self, f: usize) -> f64 {
+        self.fx[f]
     }
     pub fn t(&self, t: usize) -> f64 {
         self.traits[t]
@@ -589,6 +596,8 @@ impl World {
                 traits: [0.5; 7],
                 base_traits: [0.5; 7],
                 archetype: 0,
+                blocks: vec![],
+                fx: [1.0; crate::personality::NFX],
                 stability: 0.5,
                 regime_year: -100,
                 strength: 0.0,
@@ -1199,7 +1208,8 @@ impl World {
                 if !r.met {
                     return 0.0;
                 }
-                r.stance.tariff() * if r.trade_treaty { 0.5 } else { 1.0 }
+                // The importer (b) sets the tariff.
+                r.stance.tariff() * if r.trade_treaty { 0.5 } else { 1.0 } * self.empires[b].fx(crate::personality::FX_TARIFF)
             }
             _ => 0.0,
         }
@@ -1613,7 +1623,7 @@ impl World {
 
 /// Save files: a magic tag and format version, then the whole World (bincode). Loading resumes exactly where the save
 /// was made, caches and random streams included.
-const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x01";
+const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x02";
 
 impl World {
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {
