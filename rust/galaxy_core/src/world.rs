@@ -163,13 +163,24 @@ pub struct Empire {
     pub demilitarized_until: i64,
     pub demilitarized_by: Option<usize>,
     // Per-month caches (cleared at the start of each tick and whenever a colony is founded)
-    pub near_cache: HashMap<u64, usize>,
+    /// Nearest own colony per system/body key: (colony, distance, key position). Kept across months and updated in
+    /// place when a colony is founded; cleared only when the empire loses a colony.
+    pub near_cache: HashMap<u64, (usize, f64, (f64, f64))>,
     pub donor_cache: HashMap<u64, Option<usize>>,
     pub donor_any: Option<bool>,
     pub cand_cache: Option<Vec<usize>>,
-    pub ob_cache: Option<Vec<ObRow>>,
+    pub ob_cache: Option<std::rc::Rc<Vec<ObRow>>>,
     pub known_frontier: Option<Vec<usize>>,
-    pub survey_board: Option<Vec<usize>>,
+    /// Survey board: (value, scan index, body), best first. Rebuilt when known space or the colony set changes;
+    /// a completed survey only re-scores its own row.
+    pub survey_board: Option<Vec<(f64, usize, usize)>>,
+    pub survey_gen: u64,
+    /// Month the survey board was last rebuilt (it is refreshed at most once a month).
+    pub survey_board_tick: i64,
+    /// Generation of the colony set this empire's nearest-colony cache was built for.
+    pub near_gen: u64,
+    /// Bodies this empire knows deposits on, in id order (the outpost candidates are drawn from these).
+    pub known_bodies: Vec<usize>,
 }
 
 /// Fixed parts of an outpost option for the month: body, good, richness, net unit margin, cost without claim fee.
@@ -201,12 +212,10 @@ impl Empire {
         self.guarantees.iter().any(|g| g.0 == x)
     }
     pub fn clear_caches(&mut self) {
-        self.near_cache.clear();
         self.donor_cache.clear();
         self.donor_any = None;
         self.cand_cache = None;
         self.ob_cache = None;
-        self.survey_board = None;
     }
 }
 
@@ -235,11 +244,22 @@ pub struct World {
     pub treasury: f64,
     pub tax_collected: f64,
     pub external_migration: bool,
+    /// Bumped whenever a colony is founded or changes hands (positions never change, so nearest-colony answers only
+    /// go stale then).
+    pub colony_gen: u64,
+    /// Bumped when an empire loses a colony (the only change that can make a nearest-colony answer worse).
+    pub loss_gen: u64,
+    pub(crate) rescore_after: Option<(usize, usize)>,
+    /// Freight lane candidates for the month: per good, the 6 cheapest and 6 dearest markets.
+    pub(crate) lanes: (Vec<Vec<usize>>, Vec<Vec<usize>>),
+    pub(crate) lanes_tick: Option<u32>,
+    /// Profiling: seconds spent per phase (cumulative).
+    pub prof: std::collections::BTreeMap<&'static str, f64>,
     // Caches
     pub(crate) reg_use: Option<PerGood>,
     pub(crate) reg_cap: Option<PerGood>,
-    pub(crate) boards: HashMap<(u8, i64), Vec<Opt>>,
-    pub(crate) out_cache: HashMap<(usize, usize), Vec<Opt>>,
+    pub(crate) boards: HashMap<(u8, i64), std::rc::Rc<Vec<Opt>>>,
+    pub(crate) out_cache: HashMap<(usize, usize), std::rc::Rc<Vec<Opt>>>,
     route_cache: HashMap<(usize, u64, u64), bool>,
     route_geo: HashMap<(u64, u64), Vec<Vec<usize>>>,
 }
@@ -276,6 +296,12 @@ impl World {
             treasury: 0.0,
             tax_collected: 0.0,
             external_migration: false,
+            colony_gen: 1,
+            loss_gen: 1,
+            rescore_after: None,
+            lanes: (vec![], vec![]),
+            lanes_tick: None,
+            prof: Default::default(),
             reg_use: None,
             reg_cap: None,
             boards: HashMap::new(),
@@ -437,6 +463,10 @@ impl World {
                 ob_cache: None,
                 known_frontier: None,
                 survey_board: None,
+                survey_gen: 0,
+                survey_board_tick: -1,
+                near_gen: 0,
+                known_bodies: vec![],
             });
             let c = &mut self.colonies[cap];
             c.name = if n == 1 { "Capital".into() } else { format!("Capital {}", i + 1) };
@@ -557,17 +587,32 @@ impl World {
         self.out_cache.clear();
     }
 
+    /// Capacity of good g changed. Regional totals refresh at once; the ranked boards are kept for the month (the
+    /// option a corporation picks is re-checked against current numbers before it builds).
     pub fn invalidate_good(&mut self, g: usize) {
         self.reg_cap = None;
-        self.boards.clear();
-        self.out_cache.retain(|k, _| k.1 != g);
+        let _ = g;
     }
 
+    /// Start of the month: every per-month cache goes.
     pub fn clear_empire_caches(&mut self) {
         for e in self.empires.iter_mut() {
             e.clear_caches();
         }
         self.invalidate_all();
+    }
+
+    /// Mid-month (a colony founded or a system changing hands): the outpost tables are kept for the month (settled or
+    /// foreign bodies are skipped when they're read); settler donors and regional totals refresh.
+    pub fn colony_set_changed(&mut self) {
+        for e in self.empires.iter_mut() {
+            e.donor_cache.clear();
+            e.donor_any = None;
+            e.cand_cache = None;
+        }
+        self.reg_use = None;
+        self.reg_cap = None;
+        self.out_cache.clear();
     }
 
     /// Regional total of `use` (true) or `capacity` (false) for good g across settled colonies.
@@ -624,11 +669,21 @@ impl World {
         if nv <= old + 0.001 {
             return 0.0;
         }
+        let first = col.intel_for(e).rich.is_empty();
         let info = col.intel_for(e);
         info.rich.set(g, nv);
         info.found.set(g, nv / r.max(0.001));
-        if col.settled && col.owner == Some(e) {
+        let own_colony = col.settled && col.owner == Some(e);
+        if own_colony {
             col.capacity[g] += (nv - old) * 0.25;
+        }
+        if first {
+            let kb = &mut self.empires[e].known_bodies;
+            if let Err(at) = kb.binary_search(&c) {
+                kb.insert(at, c);
+            }
+        }
+        if own_colony {
             self.invalidate_all();
         }
         nv - old
@@ -636,6 +691,15 @@ impl World {
 
     /// First settlers arrive, sent by e: the body (and its whole system, if unclaimed) becomes e's.
     pub fn settle(&mut self, c: usize, settlers: f64, e: usize) {
+        self.colony_gen += 1;
+        // A new colony can only bring things closer: update the nearest-colony cache in place.
+        let p = self.colonies[c].pos;
+        for v in self.empires[e].near_cache.values_mut() {
+            let d = dist(p, v.2);
+            if d < v.1 {
+                *v = (c, d, v.2);
+            }
+        }
         {
             let col = &mut self.colonies[c];
             col.settled = true;
@@ -662,9 +726,13 @@ impl World {
     }
 
     pub fn nearest_settled(&mut self, c: usize, e: usize) -> usize {
+        if self.empires[e].near_gen != self.loss_gen {
+            self.empires[e].near_cache.clear();
+            self.empires[e].near_gen = self.loss_gen;
+        }
         let k = key_of(&self.colonies[c]);
         if let Some(&v) = self.empires[e].near_cache.get(&k) {
-            return v;
+            return v.0;
         }
         let mut best = self.empires[e].capital;
         let mut bd = f64::INFINITY;
@@ -679,7 +747,7 @@ impl World {
                 best = m;
             }
         }
-        self.empires[e].near_cache.insert(k, best);
+        self.empires[e].near_cache.insert(k, (best, bd, p));
         best
     }
 
@@ -717,28 +785,42 @@ impl World {
     /// Unsettled bodies with deposits known to e, outside other empires' territory.
     pub fn frontier_candidates(&mut self, e: usize) -> Vec<usize> {
         if self.empires[e].cand_cache.is_none() {
-            let v: Vec<usize> = self.frontier.iter().cloned().filter(|&c| !self.colonies[c].settled && self.colonies[c].has_known(e) && self.may_enter(e, c)).collect();
+            let v: Vec<usize> = self.empires[e].known_bodies.iter().cloned().filter(|&c| !self.colonies[c].settled && self.may_enter(e, c)).collect();
             self.empires[e].cand_cache = Some(v);
         }
         self.empires[e].cand_cache.clone().unwrap()
     }
 
-    pub fn outpost_base(&mut self, e: usize) -> Vec<ObRow> {
+    /// How many outpost candidates e has (without copying the list).
+    pub fn candidate_count(&mut self, e: usize) -> usize {
+        self.frontier_candidates(e);
+        self.empires[e].cand_cache.as_ref().unwrap().len()
+    }
+
+    pub fn outpost_base(&mut self, e: usize) -> std::rc::Rc<Vec<ObRow>> {
         if self.empires[e].ob_cache.is_none() {
             let mut rows = vec![];
-            for c in self.frontier_candidates(e) {
-                if self.colonies[c].settled || !self.can_send_settlers(e) {
-                    continue;
-                }
-                let near = self.nearest_settled(c, e);
-                let mats = Self::materials_cost(&self.colonies[near], 1.0, true);
-                let d = Self::lane_dist(&self.colonies[c], &self.colonies[near]);
-                for &(g, q) in &self.colonies[c].known_rich(e).0 {
-                    let unit = self.colonies[near].price[g] - goods::raw_cost(g) - crate::corp::SHIP_COST * d;
-                    rows.push(ObRow { c, g, q, unit, cost: crate::corp::CAPEX + crate::corp::OUTPOST_COST + mats });
+            if self.can_send_settlers(e) {
+                let mut mats_by_near: HashMap<usize, f64> = HashMap::new();
+                for c in self.frontier_candidates(e) {
+                    if self.colonies[c].settled {
+                        continue;
+                    }
+                    let near = self.nearest_settled(c, e);
+                    let mats = *mats_by_near.entry(near).or_insert_with(|| Self::materials_cost(&self.colonies[near], 1.0, true));
+                    let d = Self::lane_dist(&self.colonies[c], &self.colonies[near]);
+                    if let Some(info) = &self.colonies[c].intel[e] {
+                        for &(g, q) in &info.rich.0 {
+                            let unit = self.colonies[near].price[g] - goods::raw_cost(g) - crate::corp::SHIP_COST * d;
+                            rows.push(ObRow { c, g, q, unit, cost: crate::corp::CAPEX + crate::corp::OUTPOST_COST + mats });
+                        }
+                    }
                 }
             }
-            self.empires[e].ob_cache = Some(rows);
+            *self.prof.entry("n_outpost_base_builds").or_insert(0.0) += 1.0;
+            *self.prof.entry("n_outpost_rows").or_insert(0.0) += rows.len() as f64;
+            *self.prof.entry("n_frontier_scanned").or_insert(0.0) += self.frontier.len() as f64;
+            self.empires[e].ob_cache = Some(std::rc::Rc::new(rows));
         }
         self.empires[e].ob_cache.clone().unwrap()
     }
@@ -767,7 +849,7 @@ impl World {
 
     // ------------------------------------------------------------ Colonization
     fn on_settled(&mut self, c: usize, e: usize) {
-        self.clear_empire_caches();
+        self.colony_set_changed();
         let p = self.colonies[c].pos;
         self.reveal_around(e, p, COLONY_HORIZON);
         self.colonies[c].growth_enabled = self.cfg.growth;
@@ -840,7 +922,7 @@ impl World {
         self.colonies[donor].pop -= STATE_SETTLERS;
         self.check_claim_jump(best, e);
         self.settle(best, STATE_SETTLERS, e);
-        self.clear_empire_caches();
+        self.colony_set_changed();
         let p = self.colonies[best].pos;
         self.reveal_around(e, p, COLONY_HORIZON);
         self.colonies[best].growth_enabled = self.cfg.growth;
@@ -853,6 +935,9 @@ impl World {
             self.corps[cl.owner].claims_sold += 1;
             self.empires[e].treasury -= fee;
             self.empires[e].state_spent += fee;
+        }
+        for cl in self.colonies[best].intel_for(e).claims.iter().flatten().cloned().collect::<Vec<_>>() {
+            self.corps[cl.owner].unsold -= 1;
         }
         self.colonies[best].intel_for(e).claims = [None; goods::N];
         self.markets.push(best);
@@ -1239,8 +1324,19 @@ impl World {
     }
 
     // ------------------------------------------------------------ The month
+    pub fn lap_pub(&mut self, phase: &'static str, t0: &mut std::time::Instant) {
+        self.lap(phase, t0)
+    }
+
+    fn lap(&mut self, phase: &'static str, t0: &mut std::time::Instant) {
+        let now = std::time::Instant::now();
+        *self.prof.entry(phase).or_insert(0.0) += (now - *t0).as_secs_f64();
+        *t0 = now;
+    }
+
     pub fn step(&mut self) {
         let t = self.tick;
+        let mut t0 = std::time::Instant::now();
         self.clear_empire_caches();
         for &m in &self.markets {
             self.colonies[m].jobs = 0.0;
@@ -1254,9 +1350,18 @@ impl World {
                 self.colonies[f.colony].jobs += 1.0;
             }
         }
+        self.lap("reset", &mut t0);
         for ki in self.turn_order(t) {
             let before = self.corps[ki].cash;
+            let mut tk = std::time::Instant::now();
             self.corp_run(ki);
+            let phase = match self.corps[ki].kind {
+                Kind::Extractor => "corp_extractor",
+                Kind::Producer => "corp_producer",
+                Kind::Freight => "corp_freight",
+                Kind::Surveyor => "corp_surveyor",
+            };
+            self.lap(phase, &mut tk);
             if self.cfg.taxes {
                 let k = &mut self.corps[ki];
                 let tax = (k.cash - before).max(0.0) * PROFIT_TAX + (k.cash - WEALTH_FREE).max(0.0) * WEALTH_TAX;
@@ -1274,6 +1379,7 @@ impl World {
                 }
             }
         }
+        t0 = std::time::Instant::now();
         if self.cfg.colonize {
             for e in 0..self.empires.len() {
                 self.migrate(e);
@@ -1281,14 +1387,18 @@ impl World {
             for e in 0..self.empires.len() {
                 self.maybe_discover_sector(e);
             }
+            self.lap("migration_sectors", &mut t0);
             if self.empires.len() > 1 {
                 self.update_relations();
+                self.lap("relations", &mut t0);
                 self.mark_fronts();
                 self.military_monthly();
                 self.occupation_effects();
+                self.lap("military", &mut t0);
                 if t % 12 == 6 {
                     self.diplomacy_yearly();
                 }
+                self.lap("diplomacy", &mut t0);
             }
             if self.cfg.state && t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1 {
                 for e in 0..self.empires.len() {
@@ -1305,6 +1415,7 @@ impl World {
                 }
             }
         }
+        self.lap("state", &mut t0);
         self.invalidate_all();
         let ext = self.external_migration;
         for m in self.markets.clone() {
@@ -1314,6 +1425,7 @@ impl World {
                 self.try_emergence(m);
             }
         }
+        self.lap("markets_emergence", &mut t0);
         for ki in 0..self.corps.len() {
             if !self.corps[ki].dead && self.corps[ki].is_dead() {
                 self.dissolve(ki);

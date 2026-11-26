@@ -370,11 +370,14 @@ impl World {
             if satisfied(&st, &goal.want) {
                 continue;
             }
-            let p = plan(&st, &goal.want, &acts);
+            // Plan only with actions toward the partner(s) the goal is about: same answers, far smaller search.
+            let partners: Vec<usize> = goal.want.iter().map(|&(k, _)| k % (MAX_EMPIRES + 1)).filter(|&p| p != GLOBAL).collect();
+            let sub: Vec<Action> = acts.iter().filter(|a| partners.contains(&a.x)).cloned().collect();
+            let p = plan(&st, &goal.want, &sub);
             if p.is_empty() {
                 continue;
             }
-            let a = acts[p[0]].clone();
+            let a = sub[p[0]].clone();
             let cool = if a.act == Act::SueForPeace { PEACE_COOLDOWN } else { REFUSAL_COOLDOWN };
             let gated = matches!(a.act, Act::ProposeTrade | Act::ProposePassage | Act::SueForPeace | Act::ProposePact | Act::OfferGuarantee);
             if gated && self.empires[e].refusals.get(&a.x).map_or(false, |&y| y + cool > year) {

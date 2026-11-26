@@ -59,4 +59,7 @@ fn main() {
         }
     }
     println!("TIME,total_s={:.2}", wall0.elapsed().as_secs_f64());
+    for (k, v) in &w.prof {
+        println!("PROFILE,{},{:.2}", k, v);
+    }
 }

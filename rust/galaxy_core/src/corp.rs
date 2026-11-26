@@ -126,6 +126,8 @@ pub struct Corp {
     pub ships_lost: i32,
     pub surveys_done: i32,
     pub claims_sold: i32,
+    /// Claims this surveyor holds that no extractor has bought yet.
+    pub unsold: i32,
     pub dead: bool,
     pub route_memo: HashMap<(usize, usize), bool>,
 }
@@ -154,6 +156,7 @@ impl Corp {
             ships_lost: 0,
             surveys_done: 0,
             claims_sold: 0,
+            unsold: 0,
             dead: false,
             route_memo: HashMap::new(),
         }
@@ -282,8 +285,11 @@ impl World {
             Kind::Freight => self.run_freight(ki),
             Kind::Surveyor => self.run_survey(ki),
             _ => {
+                let mut t0 = std::time::Instant::now();
                 self.run_facilities(ki);
+                self.lap_pub("  operate", &mut t0);
                 self.review_and_expand(ki);
+                self.lap_pub("  review", &mut t0);
                 let k = &mut self.corps[ki];
                 k.idle_ticks = if k.facilities.is_empty() { k.idle_ticks + 1 } else { 0 };
             }
@@ -350,11 +356,12 @@ impl World {
     }
 
     /// Every new-facility option for a kind of corporation, best payback first (ties keep scan order).
-    fn opportunity_board(&mut self, kind: Kind, e: Option<usize>) -> Vec<Opt> {
+    fn opportunity_board(&mut self, kind: Kind, e: Option<usize>) -> std::rc::Rc<Vec<Opt>> {
         let key = (kind as u8, e.map_or(-1, |x| x as i64));
         if let Some(v) = self.boards.get(&key) {
             return v.clone();
         }
+        let mut t0 = std::time::Instant::now();
         let as_recipe = kind == Kind::Producer;
         let mut opts = vec![];
         for mi in 0..self.markets.len() {
@@ -386,19 +393,24 @@ impl World {
             }
         }
         opts.sort_by(cmp_opt);
-        self.boards.insert(key, opts.clone());
-        opts
+        let rc = std::rc::Rc::new(opts);
+        self.lap_pub("    board_build", &mut t0);
+        self.boards.insert(key, rc.clone());
+        rc
     }
 
     /// Outpost options for empire e and raw good g, best payback first.
-    fn outpost_list(&mut self, e: usize, g: usize) -> Vec<Opt> {
+    fn outpost_list(&mut self, e: usize, g: usize) -> std::rc::Rc<Vec<Opt>> {
         if let Some(v) = self.out_cache.get(&(e, g)) {
             return v.clone();
         }
+        let mut t0 = std::time::Instant::now();
+        let base = self.outpost_base(e);
+        self.lap_pub("    outpost_base", &mut t0);
         let unmet = self.regional(true, g) * HEADROOM - self.regional(false, g);
         let mut opts = vec![];
-        for (ri, row) in self.outpost_base(e).into_iter().enumerate() {
-            if row.g != g || unmet < row.q * 0.5 {
+        for (ri, &row) in base.iter().enumerate() {
+            if row.g != g || unmet < row.q * 0.5 || self.colonies[row.c].settled || !self.may_enter(e, row.c) {
                 continue;
             }
             let absorb = f64::min(1.0, unmet * EXPORT_SHARE / row.q);
@@ -411,8 +423,10 @@ impl World {
             }
         }
         opts.sort_by(cmp_opt);
-        self.out_cache.insert((e, g), opts.clone());
-        opts
+        let rc = std::rc::Rc::new(opts);
+        self.lap_pub("    outpost_list", &mut t0);
+        self.out_cache.insert((e, g), rc.clone());
+        rc
     }
 
     fn review_and_expand(&mut self, ki: usize) {
@@ -508,10 +522,20 @@ impl World {
             if cash < o.cost * if o.frontier { 1.2 } else { 1.5 } {
                 continue;
             }
+            // The board is ranked once a month: make sure the gap is still open now.
+            let q = if o.recipe { 1.0 } else if o.frontier { self.colonies[o.c].known_rich(empire.unwrap()).get(o.g) } else { self.colonies[o.c].rich().get(o.g) };
+            let unmet = self.regional(true, o.g) * HEADROOM - self.regional(false, o.g);
+            if unmet < q * 0.5 {
+                continue;
+            }
+            if !o.frontier && (self.colonies[o.c].facility_slots_free() <= 0 || Self::site_room(&self.colonies[o.c], o.g, o.recipe) < q) {
+                continue;
+            }
             best_pb = o.pb;
             best_new = Some(o);
             break;
         }
+        let mut tu = std::time::Instant::now();
         // Upgrades of our own facilities.
         for fi in 0..self.corps[ki].facilities.len() {
             let f = self.corps[ki].facilities[fi].clone();
@@ -537,6 +561,7 @@ impl World {
                 best_new = None;
             }
         }
+        self.lap_pub("    upgrades", &mut tu);
         if best_pb >= PAYBACK_HORIZON {
             return;
         }
@@ -644,6 +669,15 @@ impl World {
         let n = self.markets.len();
         self.corps[ki].rr = (self.corps[ki].rr + 7) % n.max(1);
         let rr = self.corps[ki].rr;
+        // Request sources: per good, the best-stocked colonies at the start of the run (scanning every colony for every
+        // request was the freight hot spot on big maps).
+        let mut by_stock: Vec<Vec<usize>> = vec![];
+        for g in goods::ALL {
+            let mut v: Vec<usize> = self.markets.iter().cloned().filter(|&m| self.colonies[m].stock[g] >= 8.0).collect();
+            v.sort_by(|&x, &y| self.colonies[y].stock[g].partial_cmp(&self.colonies[x].stock[g]).unwrap());
+            v.truncate(16);
+            by_stock.push(v);
+        }
         // Contracts first: deliver inputs that producers and builders asked for (the requester pays the fee).
         for di in 0..n {
             if budget <= 0.0 {
@@ -658,8 +692,8 @@ impl World {
                 let req = self.colonies[dest].requests[ri];
                 let g = req.good;
                 let mut src: Option<usize> = None;
-                for mi in 0..n {
-                    let m = self.markets[mi];
+                for mi in 0..by_stock[g].len() {
+                    let m = by_stock[g][mi];
                     let cm = &self.colonies[m];
                     if m != dest && cm.port_free() && cm.stock[g] >= 8.0 && src.map_or(true, |s| cm.stock[g] > self.colonies[s].stock[g]) {
                         if colonize && !self.route_ok_memo(ki, m, dest) {
@@ -708,15 +742,32 @@ impl World {
             }
         }
         // Candidate lanes: for each good, the 6 cheapest sources x the 6 dearest destinations.
-        let mut sources: Vec<Vec<usize>> = vec![];
-        let mut dests: Vec<Vec<usize>> = vec![];
-        for g in goods::ALL {
-            let mut by_price = self.markets.clone();
-            by_price.sort_by(|&x, &y| self.colonies[x].price[g].partial_cmp(&self.colonies[y].price[g]).unwrap());
-            sources.push(by_price.iter().take(6).cloned().collect());
-            by_price.reverse();
-            dests.push(by_price.iter().take(6).cloned().collect());
+        // Prices only change when markets tick (end of month), so the lists are built once a month for every freighter.
+        if self.lanes_tick != Some(self.tick) {
+            let mut sources: Vec<Vec<usize>> = vec![];
+            let mut dests: Vec<Vec<usize>> = vec![];
+            for g in goods::ALL {
+                let cmp = |x: &usize, y: &usize| self.colonies[*x].price[g].partial_cmp(&self.colonies[*y].price[g]).unwrap().then(x.cmp(y));
+                let mut v = self.markets.clone();
+                let k = v.len().min(6);
+                if k > 0 && v.len() > k {
+                    v.select_nth_unstable_by(k - 1, cmp);
+                }
+                let mut lo: Vec<usize> = v[..k].to_vec();
+                lo.sort_by(cmp);
+                let mut v = self.markets.clone();
+                if k > 0 && v.len() > k {
+                    v.select_nth_unstable_by(k - 1, |x, y| cmp(y, x));
+                }
+                let mut hi: Vec<usize> = v[..k].to_vec();
+                hi.sort_by(|x, y| cmp(y, x));
+                sources.push(lo);
+                dests.push(hi);
+            }
+            self.lanes = (sources, dests);
+            self.lanes_tick = Some(self.tick);
         }
+        let (sources, dests) = self.lanes.clone();
         while budget > 0.0 {
             let mut best_m = 0.0;
             let mut best: Option<(usize, usize, usize)> = None;
@@ -837,21 +888,32 @@ impl World {
         self.corps[ki].cash -= fee;
         self.corps[cl.owner].cash += fee;
         self.corps[cl.owner].claims_sold += 1;
+        self.corps[cl.owner].unsold -= 1;
         self.colonies[c].intel_for(e).claims[g] = None;
     }
 
     fn unsold_claims(&self, ki: usize) -> i32 {
-        let e = match self.corps[ki].empire {
-            Some(e) if self.cfg.colonize => e,
-            _ => return 0,
+        self.corps[ki].unsold
+    }
+
+    /// Re-score one body on its empire's survey board after a survey (instead of rebuilding the whole board).
+    fn rescore_survey_row(&mut self, e: usize, c: usize) {
+        let pos = match self.empires[e].survey_board.as_ref().and_then(|b| b.iter().position(|r| r.2 == c)) {
+            Some(p) => p,
+            None => return,
         };
-        let mut n = 0;
-        for &c in &self.frontier {
-            if let Some(i) = &self.colonies[c].intel[e] {
-                n += i.claims.iter().flatten().filter(|cl| cl.owner == ki).count() as i32;
-            }
+        let known: f64 = self.colonies[c].intel[e].as_ref().map_or(0.0, |x| x.rich.0.iter().map(|y| y.1).sum());
+        let n = self.colonies[c].surveys_by(e);
+        let ev = if n == 0 { 1.0 } else { 0.4 * known / n as f64 };
+        let near = self.nearest_settled(c, e);
+        let v = ev / (Self::survey_months(&self.colonies[c]) + self.lane(c, near) / SHIP_TIME);
+        let board = self.empires[e].survey_board.as_mut().unwrap();
+        let mut row = board.remove(pos);
+        row.0 = v;
+        if v > 0.0 {
+            let at = board.partition_point(|r| r.0 > v || (r.0 == v && r.1 < row.1));
+            board.insert(at, row);
         }
-        n
     }
 
     fn build_survey_board(&mut self, e: usize) {
@@ -869,13 +931,16 @@ impl World {
             }
         }
         rows.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)));
-        self.empires[e].survey_board = Some(rows.into_iter().map(|r| r.2).collect());
+        self.empires[e].survey_board = Some(rows);
+        self.empires[e].survey_gen = self.colony_gen;
     }
 
     fn pick_survey_target(&mut self, ki: usize) -> Option<usize> {
         let e = self.corps[ki].empire?;
-        if self.empires[e].survey_board.is_none() {
+        if self.empires[e].survey_board.is_none() || self.empires[e].survey_gen != self.colony_gen {
+            let mut t0 = std::time::Instant::now();
             self.build_survey_board(e);
+            self.lap_pub("  survey_board", &mut t0);
         }
         let mut busy = std::collections::HashSet::new();
         for k in &self.corps {
@@ -885,7 +950,7 @@ impl World {
                 }
             }
         }
-        self.empires[e].survey_board.as_ref().unwrap().iter().cloned().find(|c| !busy.contains(c))
+        self.empires[e].survey_board.as_ref().unwrap().iter().map(|r| r.2).find(|c| !busy.contains(c))
     }
 
     fn run_survey(&mut self, ki: usize) {
@@ -927,7 +992,9 @@ impl World {
             self.corps[ki].survey_jobs.push((t, eta));
         }
         let ordered = self.corps[ki].empire.map_or(0, |e| self.empires[e].survey_backlog);
+        let mut t0 = std::time::Instant::now();
         let unsold = self.unsold_claims(ki);
+        self.lap_pub("  unsold_claims", &mut t0);
         let k = &mut self.corps[ki];
         k.cash -= SURVEY_UPKEEP * (1 + k.ships) as f64;
         let per_ship_year = 12.0 / (SURVEY_MONTHS + 1.0);
@@ -942,6 +1009,13 @@ impl World {
     }
 
     fn complete_survey(&mut self, ki: usize, t: usize) {
+        self.complete_survey_inner(ki, t);
+        if let Some((e, c)) = self.rescore_after.take() {
+            self.rescore_survey_row(e, c);
+        }
+    }
+
+    fn complete_survey_inner(&mut self, ki: usize, t: usize) {
         let e = self.corps[ki].empire.unwrap();
         if self.colonies[t].surveys_by(e) == 0 {
             // Paid by the state: an ordered survey at the order price, otherwise the standing contract fee.
@@ -955,8 +1029,8 @@ impl World {
         }
         self.colonies[t].surveys += 1;
         self.colonies[t].intel_for(e).surveys += 1;
-        self.empires[e].survey_board = None;
         self.corps[ki].surveys_done += 1;
+        self.rescore_after = Some((e, t));
         for (g, r) in self.colonies[t].hidden.0.clone() {
             let found = self.colonies[t].intel_for(e).found.get(g);
             let amount = r * self.rng.range(0.4, 1.0) * (-SURVEY_DECAY / (r * 5.0) * found).exp() * SURVEY_YIELD;
@@ -967,7 +1041,18 @@ impl World {
                     Some(cl) if cl.owner == ki => cl.value,
                     _ => 0.0,
                 };
+                let lost = match info.claims[g] {
+                    Some(cl) if cl.owner != ki => Some(cl.owner),
+                    _ => None,
+                };
+                let new = !matches!(info.claims[g], Some(cl) if cl.owner == ki);
                 info.claims[g] = Some(Claim { owner: ki, value: prev + inc });
+                if let Some(o) = lost {
+                    self.corps[o].unsold -= 1;
+                }
+                if new {
+                    self.corps[ki].unsold += 1;
+                }
             }
         }
     }

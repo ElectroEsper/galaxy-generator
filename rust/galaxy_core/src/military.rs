@@ -364,6 +364,8 @@ impl World {
 
     /// A system changes hands with its colonies, people and deposits; the winner inherits what the colonies knew.
     pub fn transfer_system(&mut self, s: usize, winner: usize, loser: usize) {
+        self.colony_gen += 1;
+        self.loss_gen += 1;
         self.systems[s].owner = Some(winner);
         self.systems[s].occupier = None;
         for c in self.systems[s].bodies.clone() {
@@ -382,7 +384,7 @@ impl World {
             col.rich_from = Some(winner);
         }
         self.empires[winner].known[s] = true;
-        self.clear_empire_caches();
+        self.colony_set_changed();
         self.on_system_claimed();
     }
 
