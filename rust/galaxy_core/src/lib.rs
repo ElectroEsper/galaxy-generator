@@ -15,5 +15,6 @@ pub mod alliances;
 pub mod treaties;
 pub mod diplomacy;
 pub mod snapshot;
+pub mod plays;
 
 pub use world::{Config, World};

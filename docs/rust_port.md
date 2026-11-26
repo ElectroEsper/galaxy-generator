@@ -290,3 +290,6 @@ Each feature in the prototype, with what the port must carry. New rows are added
 - 2026-11-25: added image-driven galaxy placement (section 4a) and the astro modules to the module map.
 - 2026-11-25: document created. Covers the prototype up to war, personalities, army target strength and threat
   assessment.
+
+### Diplomatic plays (`plays.rs`)
+A demand with a 12-month deadline. Third parties back a side: pact partners, guarantors, and empires that fear the demander. At month 6 the crisis escalates: both sides arm, more backers are asked, and a neutral interventionist may mediate a compromise (the cheapest demand only). The target concedes when outmatched past its "spine". The demander may back down only after escalation, at a threshold scaled by its aggression; backing down costs reputation and brings a 10-year truce. At the deadline the crisis becomes war, with the backers joining. `go_to_war` picks a route by personality: a first strike for aggressive and reckless empires, a play for cautious or mercantile ones, an ultimatum otherwise.
