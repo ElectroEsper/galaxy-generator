@@ -59,6 +59,18 @@ pub struct EmpireView {
     pub at_war_with: Vec<String>,
 }
 
+/// A fleet or army on the map.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ForceView {
+    pub pos: (f64, f64),
+    pub owner: u32,
+    pub army: bool,
+    pub strength: f64,
+    /// Where it is heading (its own position if idle).
+    pub dest: (f64, f64),
+    pub in_op: bool,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct Snapshot {
     pub tick: u32,
@@ -70,6 +82,7 @@ pub struct Snapshot {
     pub guarantees: Vec<(u32, u32)>,
     /// This month's deliveries: from, to, good, quantity.
     pub shipments: Vec<((f64, f64), (f64, f64), u32, f64)>,
+    pub forces: Vec<ForceView>,
     pub colonies: u32,
     pub corps: u32,
 }
@@ -140,6 +153,20 @@ impl World {
             for mv in &k.last_moves {
                 s.shipments.push((self.colonies[mv.from].pos, self.colonies[mv.to].pos, mv.good as u32, mv.qty));
             }
+        }
+        for f in &self.forces {
+            let here = self.systems[f.system].pos;
+            let pos = match f.path.first() {
+                Some(&n) => {
+                    let to = self.systems[n].pos;
+                    let leg = crate::market::dist(here, to).max(1e-6);
+                    let t = (f.progress / leg).clamp(0.0, 1.0);
+                    (here.0 + (to.0 - here.0) * t, here.1 + (to.1 - here.1) * t)
+                }
+                None => here,
+            };
+            let dest = f.path.last().map_or(pos, |&d| self.systems[d].pos);
+            s.forces.push(ForceView { pos, owner: f.owner as u32, army: f.kind == crate::forces::ForceKind::Army, strength: f.strength, dest, in_op: f.op.is_some() });
         }
         s.colonies = self.markets.len() as u32;
         s.corps = self.corps.iter().filter(|k| !k.dead).count() as u32;

@@ -24,6 +24,7 @@ const MAX_SHIPS := 300
 const SYS_STRIDE := 10     # x, y, owner, occupier, at_front, settled bodies, bodies, pop, known, shortage
 const GOOD_NAMES : Array = ["Ore", "Metal", "Parts", "Food", "Water"]
 const SHIP_STRIDE := 6     # from x, from y, to x, to y, good, qty
+const FORCE_STRIDE := 8    # x, y, owner, army, strength, dest x, dest y, in operation
 
 var sim
 var snap : Dictionary = {}
@@ -31,6 +32,7 @@ var ships : Array = []          # [from, to, good, travelled, length]
 var log_lines : Array = []
 var show_ships : bool = true
 var show_labels : bool = true
+var show_forces : bool = true
 var territory_rect : ColorRect = null
 var territory_sig : String = ""
 var ship_layer : Node2D
@@ -117,6 +119,7 @@ func _unhandled_input(e : InputEvent) -> void:
 				show_ships = not show_ships
 				if not show_ships: ships.clear()
 			KEY_L: show_labels = not show_labels
+			KEY_F: show_forces = not show_forces
 			KEY_F5: _save(GameSetup.QUICKSAVE)
 			KEY_F9: _load(GameSetup.QUICKSAVE)
 			KEY_S:
@@ -224,10 +227,12 @@ func _draw() -> void:
 				draw_arc(p, r + 4.0, k * TAU / 12.0, k * TAU / 12.0 + TAU / 24.0, 4, Color(1.0, 0.25, 0.2, 0.9), 2.0)
 		if show_labels and settled > 0:
 			draw_string(font, p + Vector2(-r, -r - 4.0), "%s %d/%d" % [names[i / SYS_STRIDE], settled, int(sys[i + 6])], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.75))
+	if show_forces and snap.has("forces"):
+		_draw_forces(snap["forces"])
 	# HUD (drawn in screen space: undo the pan/zoom)
 	draw_set_transform_matrix(get_global_transform().affine_inverse())
 	draw_string(font, Vector2(16, 24), "%s   colonies %d   corps %d   ships in transit %d   [Rust sim, %.0f months/s]" % [snap["date"], snap["colonies"], snap["corps"], ships.size(), tps], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
-	draw_string(font, Vector2(16, 42), "[space] pause  [up/down] speed x%.2f  [T] ships  [L] labels  [+/-] zoom  right-drag pan   striped = occupied, dashed red = front/war, blue = pact (dashed: guarantee)" % (months_per_second / 6.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.7, 0.7))
+	draw_string(font, Vector2(16, 42), "[space] pause  [up/down] speed x%.2f  [T] ships  [F] forces  [L] labels  [+/-] zoom  right-drag pan   striped = occupied, dashed red = front/war, blue = pact (dashed: guarantee), triangle = fleet, square = army" % (months_per_second / 6.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.7, 0.7))
 	var y : float = 66.0
 	for ei in emps.size():
 		var e : Dictionary = emps[ei]
@@ -303,3 +308,30 @@ func _load(path : String) -> void:
 func _note(t : String) -> void:
 	log_lines.append("** " + t)
 	queue_redraw()
+
+## Fleets (triangles) and armies (squares), sized by strength, in their empire's colour. Forces in an operation
+## show a line to where they are heading; several forces in one system are fanned out so each stays visible.
+func _draw_forces(fo : PackedFloat32Array) -> void:
+	var font : Font = ThemeDB.fallback_font
+	var stacked : Dictionary = {}
+	for i in range(0, fo.size(), FORCE_STRIDE):
+		var p := Vector2(fo[i], fo[i + 1])
+		var key := Vector2i(int(p.x), int(p.y))
+		var k : int = stacked.get(key, 0)
+		stacked[key] = k + 1
+		p += Vector2(10.0 + 9.0 * (k % 3), -10.0 - 9.0 * (k / 3))
+		var col := _empire_color(int(fo[i + 2]))
+		var size : float = clampf(2.5 + sqrt(fo[i + 4]) * 0.35, 3.0, 11.0)
+		var dest := Vector2(fo[i + 5], fo[i + 6])
+		if fo[i + 7] > 0.5 and dest.distance_to(Vector2(fo[i], fo[i + 1])) > 1.0:
+			draw_dashed_line(p, dest, Color(col, 0.6), 1.2, 5.0)
+		if fo[i + 3] > 0.5:
+			draw_rect(Rect2(p - Vector2(size, size) * 0.8, Vector2(size, size) * 1.6), col)
+			draw_rect(Rect2(p - Vector2(size, size) * 0.8, Vector2(size, size) * 1.6), Color(0, 0, 0, 0.8), false, 1.0)
+		else:
+			var tri := PackedVector2Array([p + Vector2(0, -size), p + Vector2(size * 0.9, size * 0.7), p + Vector2(-size * 0.9, size * 0.7)])
+			draw_colored_polygon(tri, col)
+			tri.append(tri[0])
+			draw_polyline(tri, Color(0, 0, 0, 0.8), 1.0)
+		if show_labels and fo[i + 4] >= 20.0:
+			draw_string(font, p + Vector2(size + 2, 4), str(int(fo[i + 4])), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.8))

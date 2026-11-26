@@ -97,10 +97,16 @@ impl World {
         for e in 0..self.empires.len() {
             self.fund(e);
         }
+        // Fleets and armies move, plan operations and fight (forces.rs).
+        self.forces_monthly();
         let ids: Vec<usize> = self.wars.iter().map(|w| w.id).collect();
         for id in ids {
             if let Some(i) = self.war_index(id) {
-                self.fight(i);
+                let members: Vec<usize> = self.wars[i].members().collect();
+                for m in members {
+                    self.empires[m].exhaustion += EXH_PER_MONTH;
+                }
+                self.check_capitulation(id);
             }
         }
         // A side left without members ends the war.
@@ -297,89 +303,8 @@ impl World {
         self.on_system_claimed();
     }
 
-    /// Does this member have a front against anyone on the other side?
-    fn has_front(&self, w: &War, m: usize, side: usize) -> bool {
-        w.sides[1 - side].iter().any(|&o| !self.fronts(m, o).is_empty() || !self.fronts(o, m).is_empty())
-    }
 
-    fn fight(&mut self, wi: usize) {
-        let w = self.wars[wi].clone();
-        for m in w.members() {
-            self.empires[m].exhaustion += EXH_PER_MONTH;
-        }
-        // Committed strength per member: full where it has a front, half where it only sends forces to an ally's front.
-        let mut committed = vec![0.0; self.empires.len()];
-        let mut any_front = false;
-        for side in 0..2 {
-            for &m in &w.sides[side] {
-                let front = self.has_front(&w, m, side);
-                any_front |= front;
-                committed[m] = self.empires[m].strength * COMMIT * if front { 1.0 } else { 0.5 };
-            }
-        }
-        if !any_front {
-            self.check_capitulation(w.id);
-            return; // no shared front: only blockade and exhaustion
-        }
-        let total = |side: usize| w.sides[side].iter().map(|&m| committed[m]).sum::<f64>();
-        let (c0, c1) = (total(0), total(1));
-        let strike = (self.tick as i64) < w.first_strike_until;
-        let loss = [ATTRITION * c1 * if strike { 0.5 } else { 1.0 }, ATTRITION * c0 * if strike { 1.5 } else { 1.0 }];
-        for side in 0..2 {
-            let c = if side == 0 { c0 } else { c1 };
-            for &m in &w.sides[side] {
-                let l = (loss[side] * committed[m] / c.max(0.001)).min(self.empires[m].strength);
-                self.empires[m].strength -= l;
-                let pk = self.wars[wi].peak[m].max(self.empires[m].strength);
-                self.wars[wi].peak[m] = pk;
-                self.empires[m].exhaustion += EXH_LOSS_WEIGHT * l / pk.max(1.0);
-            }
-        }
-        let sup = c0 / (c0 + c1).max(0.001);
-        if sup > 0.55 {
-            self.occupy(wi, 0, (sup - 0.55) / 0.45);
-        } else if sup < 0.45 {
-            self.occupy(wi, 1, (0.45 - sup) / 0.45);
-        }
-        self.check_capitulation(w.id);
-    }
 
-    /// The side ahead liberates one of its own occupied systems first, else takes an enemy front system.
-    fn occupy(&mut self, wi: usize, win: usize, edge: f64) {
-        if self.rng.randf() >= OCCUPY_RATE * edge {
-            return;
-        }
-        let w = self.wars[wi].clone();
-        let (winners, losers) = (&w.sides[win], &w.sides[1 - win]);
-        if let Some(s) = self.systems.iter().position(|s| s.owner.map_or(false, |o| winners.contains(&o)) && s.occupier.map_or(false, |o| losers.contains(&o))) {
-            let (owner, occ) = (self.systems[s].owner.unwrap(), self.systems[s].occupier.unwrap());
-            self.systems[s].occupier = None;
-            let t = format!("{} liberates {} from {}", self.empires[owner].name, self.systems[s].name, self.empires[occ].name);
-            self.event(t);
-            self.on_system_claimed();
-            return;
-        }
-        let mut targets: Vec<(usize, usize, usize)> = vec![]; // (system, its owner, occupier-to-be)
-        for &l in losers {
-            let cap = self.empires[l].capital;
-            for &wn in winners {
-                for s in self.fronts(l, wn) {
-                    if !self.systems[s].bodies.contains(&cap) && !targets.iter().any(|t| t.0 == s) {
-                        targets.push((s, l, wn));
-                    }
-                }
-            }
-        }
-        if targets.is_empty() {
-            return;
-        }
-        let (s, l, wn) = targets[self.rng.below(targets.len())];
-        self.systems[s].occupier = Some(wn);
-        self.empires[l].exhaustion += EXH_PER_OCCUPIED;
-        let t = format!("{} occupies {} ({})", self.empires[wn].name, self.systems[s].name, self.empires[l].name);
-        self.event(t);
-        self.on_system_claimed();
-    }
 
     fn check_capitulation(&mut self, war_id: usize) {
         let w = match self.war_index(war_id) {
@@ -406,6 +331,7 @@ impl World {
             Some(i) => i,
             None => return,
         };
+        self.forces_after_peace(war_id);
         let side = match self.wars[wi].side_of(m) {
             Some(s) => s,
             None => return,
@@ -445,6 +371,7 @@ impl World {
             Some(i) => i,
             None => return,
         };
+        self.forces_after_peace(war_id);
         let w = self.wars.remove(wi);
         let (s0, s1) = (&w.sides[0], &w.sides[1]);
         for s in self.systems.iter_mut() {
