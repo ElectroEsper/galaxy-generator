@@ -70,6 +70,8 @@ var btn_pause : Button
 var lbl_speed : Label
 var empire_box : VBoxContainer
 var empire_scroll : ScrollContainer
+var empire_sort : int = 0        # see SORT_NAMES
+const SORT_NAMES : Array = ["Number", "Systems", "Population", "Military", "Treasury", "Reputation", "At war first"]
 var empire_rows : Array = []     # [button, swatch, label, war label, bar]
 var log_text : RichTextLabel
 var sys_panel : PanelContainer
@@ -558,8 +560,22 @@ func _build_ui() -> void:
 	left.custom_minimum_size = Vector2(LEFT_W, 0)
 	var lv := VBoxContainer.new()
 	left.add_child(lv)
-	var lt := Label.new(); lt.text = "Empires  (click for details)"; lt.modulate = Color(0.8, 0.8, 0.8)
-	lv.add_child(lt)
+	var lh := HBoxContainer.new()
+	lv.add_child(lh)
+	var lt := Label.new(); lt.text = "Empires"; lt.modulate = Color(0.8, 0.8, 0.8)
+	lt.tooltip_text = "Click an empire for its details"
+	lt.mouse_filter = Control.MOUSE_FILTER_PASS
+	lt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lh.add_child(lt)
+	var sl := Label.new(); sl.text = "sort"; sl.modulate = Color(0.6, 0.6, 0.6)
+	lh.add_child(sl)
+	var sort_btn := OptionButton.new()
+	sort_btn.focus_mode = Control.FOCUS_NONE
+	sort_btn.tooltip_text = "Sort the empire list (largest first)"
+	for n in SORT_NAMES:
+		sort_btn.add_item(n)
+	sort_btn.item_selected.connect(func(i): empire_sort = i; _update_ui(false))
+	lh.add_child(sort_btn)
 	# Scrolls when there are more empires than fit above the event log.
 	empire_scroll = ScrollContainer.new()
 	empire_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -725,9 +741,26 @@ func _update_ui(new_events : bool) -> void:
 		row[3].visible = war
 		row[3].value = e["exhaustion"]
 		row[0].tooltip_text = "%s\n%s" % [e["name"], e["personality"]]
+	# Order the rows (largest first; ties keep empire number order).
+	var order : Array = range(emps.size())
+	order.sort_custom(func(a, b):
+		var ka : float = _sort_key(emps[a], a); var kb : float = _sort_key(emps[b], b)
+		return ka > kb if ka != kb else a < b)
+	for pos in order.size():
+		empire_box.move_child(empire_rows[order[pos]][0], pos)
 	if new_events:
 		_refresh_log()
 	_update_empire_panel()
+
+func _sort_key(e : Dictionary, i : int) -> float:
+	match empire_sort:
+		1: return e["systems"] * 1000.0 + e["colonies"]
+		2: return e["pop"]
+		3: return e.get("fleet", 0.0) + e.get("army", 0.0)
+		4: return e["treasury"]
+		5: return e["reputation"]
+		6: return (1e6 if e["at_war_with"].size() > 0 else 0.0) + e["exhaustion"]
+	return -i
 
 func _short(v : float) -> String:
 	return "%.1fk" % (v / 1000.0) if v >= 1000.0 else str(int(v))
