@@ -107,6 +107,21 @@ pub struct World {
 
 `MAX_EMPIRES = 8`, matching the territory shader's palette.
 
+## 4a. Galaxy placement from images
+
+William's placement design (from the original `universe.gd`):
+
+- **Density map (greyscale image):** each pixel's brightness is the chance a star can sit there. Brighter core and arms
+  get more stars; dark lanes and the void get none.
+- **Population map (colour image):** at a star's pixel, the R, G and B channels are tried in descending order
+  (random order on ties) and the first that passes a roll against its own value picks the population:
+  G = Pop I (spiral-arm ridges, youngest), B = Pop I-i (arms), R = Pop II-i, none = Pop II.
+- The population then drives metallicity, age, star class and everything downstream in the planet pipeline.
+
+Port notes: the CLI loads the two PNGs with the `image` crate; the extension receives them as Godot `Image` byte buffers.
+Sample positions by weighted draw over a cumulative brightness array (exact star count, one pass) rather than one
+roll per pixel then a shuffle. The two images must have the same size.
+
 ## 5. Module map
 
 | GDScript file | Rust module | Contents |
@@ -115,7 +130,8 @@ pub struct World {
 | `colony_market.gd` | `core::market` | prices from cover, consumption, births/deaths, maintenance, migration hooks |
 | `corporation.gd` | `core::corp::{extractor, producer, freight, surveyor, boards}` | operate, review and expand, construction, freight routing, surveys and claims; opportunity, outpost and survey boards |
 | `economy_sim.gd` | `core::world`, `core::colonize`, `core::relations`, `core::metrics` | tick order, taxes, emergence, colonization (outposts, state colonies, sectors), relations and borders, routes and tariffs, CSV rows |
-| `galaxy_colonies.gd`, `system_node.gd` | `core::galaxy` | galaxy generation and systems (later: the image-driven generator) |
+| `galaxy_colonies.gd`, `system_node.gd` | `core::galaxy` | systems and bodies for the economy |
+| `galaxy.gd`, `solar_system.gd`, `planet.gd`, `planet_resources.gd`, `astronomy_data.gd` | `core::astro` | the real star and planet generator (population, class, orbits, axes, classification, resources); image-driven placement (section 4a) |
 | `military.gd` | `core::military` | target strength, upkeep, fronts, attrition, occupation, peace |
 | `diplomacy.gd` | `core::diplomacy::{facts, actions, goals, planner}` | GOAP: facts, actions, goals, planner search, execution |
 | `personality.gd` | `core::personality` | traits, weights, drift, event shifts, regime change |
@@ -223,5 +239,6 @@ Each feature in the prototype, with what the port must carry. New rows are added
 
 ## 11. Changelog
 
+- 2026-11-25: added image-driven galaxy placement (section 4a) and the astro modules to the module map.
 - 2026-11-25: document created. Covers the prototype up to war, personalities, army target strength and threat
   assessment.
