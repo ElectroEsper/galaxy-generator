@@ -1,3 +1,5 @@
+> **Note (2026-11-26):** parts of this document describe the original GDScript prototype, which now lives on the `archive/shadow-realm` branch. The current design is in `docs/rust_port.md`.
+
 # Galaxy Generator – Design Notes
 
 ## Pipeline
