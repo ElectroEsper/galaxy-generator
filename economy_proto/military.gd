@@ -41,7 +41,9 @@ static func monthly(sim) -> void:
 	for e in sim.empires:
 		_fund(sim, e)
 	for w in sim.wars.duplicate():
-		_fight(sim, w)
+		if sim.wars.has(w):                      # an earlier peace this month may have ended it (allies' wars)
+			_fight(sim, w)
+	Treaties.monthly(sim)
 	for e in sim.empires:
 		if not sim.wars.any(func(w): return w["a"] == e or w["b"] == e):
 			e.exhaustion = maxf(0.0, e.exhaustion - EXH_RECOVER)
@@ -60,7 +62,10 @@ static func _share(sim, e) -> float:
 static func target_strength(sim, e) -> float:
 	var cap : ColonyMarket = e.capital
 	var upkeep_unit : float = UPKEEP_CASH + UPKEEP_PARTS * cap.price[Goods.PARTS]
-	return _share(sim, e) * e.avg_tax / upkeep_unit
+	var t : float = _share(sim, e) * e.avg_tax / upkeep_unit
+	if e.demilitarized_until > sim.tick_count / 12:
+		t *= Treaties.DEMILITARIZE_CAP           # capped by a peace treaty
+	return t
 
 ## Monthly: pay upkeep, then build toward the target (paid from the treasury, goods from the capital) or stand down.
 static func _fund(sim, e) -> void:
@@ -137,13 +142,19 @@ static func fronts(sim, side, enemy) -> Array:
 	var theirs : Array = sim.all_systems().filter(func(s): return s.owner == enemy)
 	return mine.filter(func(s): return theirs.any(func(t): return t.position.distance_to(s.position) <= sim.BORDER_RANGE))
 
-static func declare(sim, a, b) -> void:
+## parent: the war this one joins (an ally answering a call to arms), or null for a war of choice.
+static func declare(sim, a, b, parent = null, goals : Array = []) -> void:
 	var r : Dictionary = sim._rel(a, b)
 	r["trade_treaty"] = false; r["passage"] = false
 	r["stance"] = "embargo"
-	sim.wars.append({"a": a, "b": b, "start": sim.tick_count, "peak_a": a.strength, "peak_b": b.strength})
-	a.wars_started.append(sim.tick_count / 12)
-	sim._event("WAR: %s declares war on %s (strength %d vs %d)" % [a.name, b.name, a.strength, b.strength])
+	var w : Dictionary = {"a": a, "b": b, "start": sim.tick_count, "peak_a": a.strength, "peak_b": b.strength, "parent": parent, "goals": goals}
+	sim.wars.append(w)
+	if parent == null:
+		a.wars_started.append(sim.tick_count / 12)
+		Alliances.adjust_trust(sim, b, a, Alliances.TRUST_ATTACKED)
+		Alliances.adjust_reputation(sim, a, Alliances.REP_WAR_OF_CHOICE - Treaties.REP_PER_GOAL_POINT * Treaties.total(sim, goals), "attacked %s" % b.name)
+		sim._event("WAR: %s declares war on %s (strength %d vs %d)%s" % [a.name, b.name, a.strength, b.strength, (" - goals: " + Treaties.describe_all(goals)) if not goals.is_empty() else ""])
+		Alliances.call_to_arms(sim, a, b, w)
 	sim.on_system_claimed()   # routes change with stances
 
 static func _fight(sim, w : Dictionary) -> void:
@@ -154,11 +165,24 @@ static func _fight(sim, w : Dictionary) -> void:
 	if fa.is_empty() and fb.is_empty():
 		_check_capitulation(sim, w)
 		return                      # no shared front: only blockade and exhaustion
+	# Allies who joined this war (against a, on b's side) fight alongside b on b's front
+	# (only those with no front of their own against a: they send forces to b's front instead)
+	var helpers : Array = sim.wars.filter(func(x): return x.get("parent") == w and fronts(sim, x["a"], a).is_empty() and fronts(sim, a, x["a"]).is_empty()).map(func(x): return x["a"])
 	var sa : float = a.strength * COMMIT
 	var sb : float = b.strength * COMMIT
-	var la : float = minf(a.strength, ATTRITION * sb)
-	var lb : float = minf(b.strength, ATTRITION * sa)
+	var sh : float = 0.0
+	for h in helpers: sh += h.strength * COMMIT * 0.5
+	var la : float = minf(a.strength, ATTRITION * (sb + sh))
+	var lb_total : float = ATTRITION * sa
+	var lb : float = minf(b.strength, lb_total * sb / maxf(sb + sh, 0.001))
+	for h in helpers:
+		var lh : float = minf(h.strength, lb_total * h.strength * COMMIT * 0.5 / maxf(sb + sh, 0.001))
+		h.strength -= lh
+		h.exhaustion += EXH_LOSS_WEIGHT * lh / maxf(h.strength + lh, 1.0)
+	if sim.tick_count < w.get("first_strike_until", -1):
+		la *= 0.5; lb *= 1.5                    # caught unprepared
 	a.strength -= la; b.strength -= lb
+	sb += sh
 	w["peak_a"] = maxf(w["peak_a"], a.strength); w["peak_b"] = maxf(w["peak_b"], b.strength)
 	a.exhaustion += EXH_LOSS_WEIGHT * la / maxf(w["peak_a"], 1.0)
 	b.exhaustion += EXH_LOSS_WEIGHT * lb / maxf(w["peak_b"], 1.0)
@@ -192,40 +216,39 @@ static func _check_capitulation(sim, w : Dictionary) -> void:
 	for side in [w["a"], w["b"]]:
 		if side.exhaustion >= EXH_CAPITULATE:
 			var other = w["b"] if side == w["a"] else w["a"]
-			sim._event("%s capitulates to %s" % [side.name, other.name])
-			make_peace(sim, w)
+			Treaties.capitulate(sim, w, side)
 			return
 
-## Peace: every occupied system changes hands to its occupier (colonies, people, deposits); both sides keep what remains.
-static func make_peace(sim, w : Dictionary) -> void:
+## Peace: occupations end (occupied systems return to their owners); the terms (treaties.gd) are applied by the caller.
+static func make_peace(sim, w : Dictionary, terms : Array = []) -> void:
 	var a = w["a"]; var b = w["b"]
-	var ceded : Array = []
 	for s in sim.all_systems():
 		if s.occupier != null and ((s.owner == a and s.occupier == b) or (s.owner == b and s.occupier == a)):
-			var winner = s.occupier
-			var loser = s.owner
-			s.owner = winner
 			s.occupier = null
-			for c in s.bodies:
-				if c.owner == loser:
-					var mine : Dictionary = c.intel_for(winner)["rich"]
-					for g in c.richness:
-						mine[g] = maxf(mine.get(g, 0.0), c.richness[g])   # the winner inherits what the colony knew
-					c.owner = winner
-					c.richness = mine
-			winner.known[s] = true
-			ceded.append("%s -> %s" % [s.name, winner.name])
 	sim.wars.erase(w)
-	var gain_a : int = ceded.filter(func(c): return c.ends_with(a.name)).size()
-	var gain_b : int = ceded.size() - gain_a
-	a.systems_taken += gain_a; b.systems_taken += gain_b
-	if gain_a > gain_b: Personality.on_peace(sim, a, b, gain_a)
-	elif gain_b > gain_a: Personality.on_peace(sim, b, a, gain_b)
+	for child in sim.wars.duplicate():
+		if child.get("parent") == w:
+			make_peace(sim, child)          # allies who joined this war make a white peace with it
 	var r : Dictionary = sim._rel(a, b)
 	r["stance"] = "hostile"
 	r["truce_until"] = sim.tick_count / 12 + TRUCE_YEARS
 	r["opinion"] = maxf(r["opinion"], -60.0)
-	sim._event("PEACE between %s and %s after %d years%s" % [a.name, b.name, (sim.tick_count - w["start"]) / 12, (": " + ", ".join(ceded)) if not ceded.is_empty() else " (white peace)"])
+	sim._event("PEACE between %s and %s after %d years%s" % [a.name, b.name, (sim.tick_count - w["start"]) / 12, (": " + Treaties.describe_all(terms)) if not terms.is_empty() else " (white peace)"])
+	sim._clear_empire_caches()
+	sim.on_system_claimed()
+
+## A system changes hands with its colonies, people and deposits; the winner inherits what the colonies knew.
+static func transfer_system(sim, s, winner, loser) -> void:
+	s.owner = winner
+	s.occupier = null
+	for c in s.bodies:
+		if c.owner == loser:
+			var mine : Dictionary = c.intel_for(winner)["rich"]
+			for g in c.richness:
+				mine[g] = maxf(mine.get(g, 0.0), c.richness[g])
+			c.owner = winner
+			c.richness = mine
+	winner.known[s] = true
 	sim._clear_empire_caches()
 	sim.on_system_claimed()
 

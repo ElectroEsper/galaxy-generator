@@ -238,6 +238,17 @@ func _draw_map() -> void:
 				draw_arc(sys.position, r + 4.0, i * TAU / 12.0, i * TAU / 12.0 + TAU / 24.0, 4, Color(1.0, 0.25, 0.2, 0.9), 2.0)
 		if show_labels:
 			draw_string(font, sys.position + Vector2(-r, -r - 6.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
+	# Alliances: a solid line between pact partners' capitals; a thinner one from a guarantor to the empire it protects
+	for i in sim.empires.size():
+		for j in range(i + 1, sim.empires.size()):
+			var ea = sim.empires[i]; var eb = sim.empires[j]
+			if ea.capital and eb.capital and sim._rel(ea, eb).get("pact", false):
+				draw_line(ea.capital.position, eb.capital.position, Color(0.55, 0.85, 1.0, 0.7), 2.5)
+	for g in sim.empires:
+		for xid in g.guarantees:
+			var x = sim.empires[xid]
+			if g.capital and x.capital:
+				draw_dashed_line(g.capital.position, x.capital.position, Color(0.55, 0.85, 1.0, 0.5), 1.5, 6.0)
 	# Wars: a red line between the belligerents' capitals
 	for w in sim.wars:
 		if w["a"].capital and w["b"].capital:
@@ -250,7 +261,7 @@ func _draw_map() -> void:
 		kinds[n] = kinds.get(n, 0) + 1
 		cash_total += k.cash
 	draw_string(font, Vector2(16, 24), "%s (tick %d)   colonies %d (%d systems)   surveyed %d   corps %s   ships in transit %d" % [sim.date_label(), sim.tick_count, markets.size(), GalaxyColonies.systems.filter(func(s): return not s.settled_bodies().is_empty()).size(), sim.frontier.filter(func(c): return c.surveys > 0).size(), kinds, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
-	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f (%.1f months/s)   [T] ships  [L] labels   striped = occupied, dashed red = front, gold ring = known deposits" % [speed_mult, tps], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
+	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f (%.1f months/s)   [T] ships  [L] labels   striped = occupied, dashed red = front/war, blue = pact (dashed: guarantee), gold ring = known deposits" % [speed_mult, tps], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
 	if sim.empires.size() > 1:
 		var ey : float = 84.0
 		for e in sim.empires:

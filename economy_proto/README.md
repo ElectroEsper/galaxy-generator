@@ -405,3 +405,30 @@ shift slightly after ~30 years (year 100 colonies 95/123/84/139 vs 95/124/84/145
 - **Exhaustion** rises with time at war, losses and occupied systems. At 100 the empire capitulates. Peace cedes every occupied system to its occupier and starts a 15-year truce.
 - **GOAP**: new actions are `arm`, `declare_war` and `sue_for_peace`. New goals are deter a stronger hostile neighbour, seize a long border from a weaker one, and end a war that's going badly. A *rivalry* (border ≥ 15 segments and negative opinion) counts as hostile, even when trade keeps the formal stance neutral.
 - 4 empires × 200 systems × 100 years (`docs/economy_results/fig22_war.png`): Empire 1 attacks its rival Empire 3 in year 72 (strength 36 vs 6) and takes 4 systems. After the truce, a second war ends in a white peace. One-empire runs are unchanged.
+
+## Personality, threat and alliances
+
+- **Army size** is a target: the upkeep an empire is willing to pay, as a share of its smoothed monthly tax income: 10% at peace (rising with threat), 25% while arming, 40% at war, scaled by militarism. It's built from the treasury, at most 5% of the target a month, with Metal and Parts bought from all the empire's colonies, cheapest first. Above the target, the army stands down slowly.
+- **Personality** (`personality.gd`): 7 traits from 0 to 1: aggression, expansion, mercantile, xenophobia, militarism, caution, intervention.
+  - They weight GOAP goal priorities, the cost of declaring war, the strength ratio needed to attack, the exhaustion at which an empire wants peace, how much trade and borders move opinion, and military spending.
+  - Every year traits drift, pulled back toward the regime's own values.
+  - Events shift them: losers turn revanchist, or pacifist after a crushing defeat; trade breeds merchants; incidents breed distrust.
+  - Regime changes (at most one per 10 years, likelier in a crisis) reset the regime's values.
+- **Threat** (`threat.gd`): each year every empire scores every other empire it has met by relative strength, shared border, wars started in the last 30 years, systems taken, and 20-year growth, tempered by its own caution and xenophobia. The main threat raises the army target and drives "deter" and alliance goals.
+- **Pacts and guarantees** (`alliances.gd`):
+  - An empire seeks a defensive pact with another that fears the same empire, or guarantees a small neighbour that sits between it and its main threat.
+  - When an empire is attacked, its partners and guarantors are called to arms. Pacts are honoured 60–100% of the time and guarantees 30–90% (by caution, intervention and exhaustion). Refusing breaks the promise and costs 30 opinion.
+- **Trust and reputation:**
+  - **Trust** is per pair and one-way (0–100): does A believe B keeps its word. It falls 40 when B abandons A and 30 when B attacks A. It rises 15 when B answers A's call, and 1 a year for each pact or guarantee kept.
+  - **Reputation** is per empire and seen by all: −15 for a betrayal, −5 for a war of choice, +5 for honouring a call. It recovers 1 a year toward 50.
+  - Pacts need trust (60% own trust, 40% reputation) of 40, plus up to 20 for xenophobes. Guarantees need 30.
+  - Attackers discount an ally's strength by its reputation, so a known betrayer deters less.
+  - Allies with no front of their own fight on the defender's front, and make peace when the main war ends.
+  - Attackers count 60% of the defender's allies' strength before declaring war.
+  - Pacts lapse after 10 years if nobody is afraid any more; guarantees end when the protected empire is no longer small.
+- **Treaties and revanchism** (`treaties.gd`):
+  - **Going to war:** an attacker names its war goals (systems, reparations, open market, demilitarisation, humiliation) and pays reputation for their value. Reckless empires strike without warning: a 3-month first-strike edge and extra reputation cost. Others send an ultimatum with one demand; a target that expects to lose badly yields, which buys a truce and makes it less willing to yield again.
+  - **War score:** occupations, strength balance and exhaustion gap.
+  - **Peace terms:** the side ahead demands terms worth up to its score, raised by its aggression. The other side accepts, counters by dropping the costliest terms, or fights on. A collapsing empire takes whatever is demanded.
+  - **Greed:** terms beyond the score cost the winner reputation and feed the loser's grudge and claims.
+  - **Revanchists:** see their victor as their main threat, strike when it is at war elsewhere, repudiate imposed terms when it is distracted (at a reputation cost), radicalise while paying reparations, and slowly forgive.
