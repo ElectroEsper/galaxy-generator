@@ -8,6 +8,8 @@ var star_class : String = ""
 var bodies : Array = []        # ColonyMarket, settled or not
 var known : bool = true        # charted by anyone (for the view); each Empire keeps its own map
 var owner = null               # Empire that settled here first (owns the whole system)
+var occupier = null            # Empire occupying it in a war (until liberated, or ceded at peace)
+var at_front : bool = false    # near an enemy at war (output reduced)
 
 func _init(n : String, pos : Vector2) -> void:
 	name = n; position = pos

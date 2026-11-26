@@ -118,6 +118,7 @@ const TERRITORY_RADIUS := 70.0       # px a claimed system's territory reaches (
 const ROUTE_SAMPLE := 20.0           # px between territory checks along a route
 const GOODWILL_WEIGHT := 1.0         # opinion from aid / gestures (decays like incidents)
 var relations : Dictionary = {}      # "a:b" (a < b) -> {met, opinion, trade, month_trade, border, incidents, stance}
+var wars : Array = []                # [{a, b, start, peak_a, peak_b}]
 var events : Array = []              # [tick, text] - first contacts, incidents, stance changes
 const EMPIRE_COLORS : Array = [Color(0.95, 0.8, 0.35), Color(0.4, 0.75, 1.0), Color(0.95, 0.45, 0.45), Color(0.6, 0.9, 0.5), Color(0.8, 0.6, 1.0), Color(1.0, 0.65, 0.3), Color(0.5, 0.95, 0.9), Color(0.95, 0.6, 0.85)]
 
@@ -500,7 +501,7 @@ func _tick(t : int) -> void:
 			var tax : float = maxf(0.0, k.cash - before) * PROFIT_TAX + maxf(0.0, k.cash - WEALTH_FREE) * WEALTH_TAX
 			k.cash -= tax; tax_collected += tax
 			if k.empire != null:
-				k.empire.treasury += tax; k.empire.tax_collected += tax
+				k.empire.treasury += tax; k.empire.tax_collected += tax; k.empire.month_tax += tax
 			else:
 				treasury += tax
 		for m in k.last_moves:
@@ -513,6 +514,9 @@ func _tick(t : int) -> void:
 		t0 = _p("sector_events", t0)
 		if empires.size() > 1:
 			_update_relations()
+			_mark_fronts()
+			Military.monthly(self)
+			_occupation_effects()
 			if t % 12 == 6:
 				Diplomacy.yearly(self)
 		t0 = _p("relations", t0)
@@ -613,13 +617,31 @@ func route_ok(f : Empire, a : ColonyMarket, b : ColonyMarket) -> bool:
 			var z : Empire = null
 			for s in near:
 				if s.owner != null:
-					z = s.owner; break           # ownership read live: a newly claimed system closes routes at once
+					z = s.occupier if s.occupier != null else s.owner; break   # live; occupied space belongs to the occupier
 			if z == null or z == f or ends.has(z):
 				continue
 			if not treaty(f, z, "passage"):
 				ok = false; break
 	_route_cache[key] = ok
 	return ok
+
+## All star systems (the generator's list), for scripts that must not depend on the generator at compile time.
+func all_systems() -> Array:
+	return GalaxyColonies.systems
+
+## Systems near an enemy at war are "at the front" (output reduced).
+func _mark_fronts() -> void:
+	for s in GalaxyColonies.systems: s.at_front = false
+	for w in wars:
+		for s in Military.fronts(self, w["a"], w["b"]) + Military.fronts(self, w["b"], w["a"]):
+			s.at_front = true
+
+## Occupied systems slowly lose people.
+func _occupation_effects() -> void:
+	for s in GalaxyColonies.systems:
+		if s.occupier != null:
+			for c in s.bodies:
+				if c.settled: c.pop *= 1.0 - Military.OCCUPIED_POP_LOSS
 
 ## A star system got its first owner: cached route answers may now be wrong (freighters' memos too).
 func on_system_claimed() -> void:
@@ -698,6 +720,8 @@ func _update_relations() -> void:
 			r["goodwill"] *= INCIDENT_DECAY
 			var target : float = TRADE_WEIGHT * log(1.0 + r["trade"]) - BORDER_WEIGHT * border - INCIDENT_PENALTY * r["incidents"] + GOODWILL_WEIGHT * r["goodwill"]
 			r["opinion"] = clampf(r["opinion"] + OPINION_RATE * (target - r["opinion"]), -100.0, 100.0)
+			if wars.any(func(w): return (w["a"] == a and w["b"] == b) or (w["a"] == b and w["b"] == a)):
+				continue                         # at war: stance stays "embargo" until peace
 			var st : String = "neutral"
 			if r["opinion"] >= 25.0: st = "friendly"
 			elif r["opinion"] <= -60.0: st = "embargo"
@@ -836,7 +860,7 @@ func relation_rows() -> Array:
 	return rows
 
 ## Per-empire metrics, one row per empire (see EMPIRE_HEADER).
-const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps,customs"
+const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps,customs,strength,exhaustion,mil_spent,occupied_by_enemy,at_war"
 func empire_rows() -> Array:
 	var rows : Array = []
 	for e in empires:
@@ -854,7 +878,7 @@ func empire_rows() -> Array:
 			if k.empire == e:
 				nc += 1
 				if k.kind == Corporation.Kind.SURVEYOR: sships += 1 + k.ships
-		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d,%.0f" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc, e.customs_collected])
+		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d,%.0f,%.0f,%.1f,%.0f,%d,%d" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc, e.customs_collected, e.strength, e.exhaustion, e.mil_spent, GalaxyColonies.systems.filter(func(x): return x.owner == e and x.occupier != null).size(), 1 if wars.any(func(w): return w["a"] == e or w["b"] == e) else 0])
 	return rows
 
 ## One row of time-series metrics (see METRIC_HEADER).

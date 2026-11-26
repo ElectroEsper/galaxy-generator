@@ -267,14 +267,14 @@ func _run_facilities() -> void:
 			# Same discipline as producers: don't extract at a loss; idle until price recovers.
 			if _unit_margin(c, f.good, false) <= 0.0:
 				continue
-			var q : float = c.richness.get(f.good, 0.0) * f.level_mult()
+			var q : float = c.richness.get(f.good, 0.0) * f.level_mult() * Military.output_factor(c)
 			c.stock[f.good] += q
 			cash += q * (c.price[f.good] - Goods.RAW_COST[f.good])
 		else:
 			var r : Dictionary = Goods.RECIPES[f.good]
 			# Operating discipline: don't buy inputs at a loss; idle until the margin recovers.
 			var idle : bool = _unit_margin(c, f.good, true) <= 0.0
-			var runs : float = 0.0 if idle else f.level_mult()
+			var runs : float = 0.0 if idle else f.level_mult() * Military.output_factor(c)
 			for i in r["in"]:
 				c.note_use(i, r["in"][i] * f.level_mult())           # desired input draw, even if the shelf is empty
 				# Ask Freight for a few ticks' worth of inputs when the shelf runs low.

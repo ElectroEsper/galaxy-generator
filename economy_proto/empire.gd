@@ -18,6 +18,12 @@ var surveys_ordered : int = 0
 var sector_events : int = 0
 var settlements : int = 0
 var customs_collected : float = 0.0
+# Military (see military.gd)
+var strength : float = 0.0
+var exhaustion : float = 0.0
+var month_tax : float = 0.0          # taxes collected this month (the military budget is a share of it)
+var mil_spent : float = 0.0
+var arming_until : int = 0            # year until which the planner wants extra armament
 var refusals : Dictionary = {}       # other empire id -> year it last refused a proposal (diplomacy cooldown)
 # Known space: systems this empire has charted (SystemNode -> true)
 var known : Dictionary = {}

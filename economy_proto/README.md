@@ -397,3 +397,11 @@ correct but changes results after ~30 years; kept the monthly snapshot for now.
 Update: route checks now read ownership live (a newly claimed system closes routes at once); route caches and freighters' memos are cleared when a
 system gets its first owner. Cost: none (4 empires x 200 systems x 100 years: 244 s -> 235 s). One empire: output unchanged. Four empires: results
 shift slightly after ~30 years (year 100 colonies 95/123/84/139 vs 95/124/84/145, population a few % higher).
+
+## War (abstract military)
+
+- **Strength** is one number per empire, bought each month with a share of that month's tax income: 0% before meeting anyone, 5% at peace, 20% while arming, 35% at war. One point costs 20 cash + 2 Metal + 1 Parts, taken from the capital's market. Upkeep is 0.5 cash + 0.01 Parts per point per month. Unpaid upkeep decays strength 2%/month.
+- **Fronts**: systems within border range of the enemy. Each month both sides commit 70% of strength and lose 1% of the other's committed strength (attrition). The side with more than 55% of the committed total may occupy an enemy front system (never the capital), liberating its own first. Front colonies produce at 80%, occupied ones at 50%, and occupied systems lose 0.5% of their population per month.
+- **Exhaustion** rises with time at war, losses and occupied systems. At 100 the empire capitulates. Peace cedes every occupied system to its occupier and starts a 15-year truce.
+- **GOAP**: new actions are `arm`, `declare_war` and `sue_for_peace`. New goals are deter a stronger hostile neighbour, seize a long border from a weaker one, and end a war that's going badly. A *rivalry* (border ≥ 15 segments and negative opinion) counts as hostile, even when trade keeps the formal stance neutral.
+- 4 empires × 200 systems × 100 years (`docs/economy_results/fig22_war.png`): Empire 1 attacks its rival Empire 3 in year 72 (strength 36 vs 6) and takes 4 systems. After the truce, a second war ends in a white peace. One-empire runs are unchanged.
