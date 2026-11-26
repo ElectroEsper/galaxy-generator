@@ -64,6 +64,18 @@ const DATABASE : Dictionary = {
 			StarClass.K : [0,5],
 			StarClass.M : [0,4]
 		},
+		# Share of main-sequence stars by class in the real galaxy (by count; Ledrew 2001 / Habets & Heintze 1981).
+		# Used as selection weights among the classes a star's metallicity allows, raised to
+		# Constants.class_realism (1 = real proportions, 0 = every allowed class equally likely).
+		abundance = {
+			StarClass.O : 0.0000003,
+			StarClass.B : 0.0013,
+			StarClass.A : 0.006,
+			StarClass.F : 0.03,
+			StarClass.G : 0.076,
+			StarClass.K : 0.121,
+			StarClass.M : 0.765
+		},
 		chances_of_ring = {
 			StarClass.O : 0,
 			StarClass.B : 0,
@@ -84,6 +96,8 @@ const DATABASE : Dictionary = {
 		}
 	},
 	Constants = {
+		# Star class mix: 1.0 = real galaxy (~77% M, almost no O/B), 0.5 = game mix (~49% M, ~2% B, a rare O), 0 = uniform
+		class_realism = 0.5,
 		base_oxygen_threshold = 0.5,
 		alpha_enhancement_coeff = 0.4,
 		life_possible_threshold = 0.7,

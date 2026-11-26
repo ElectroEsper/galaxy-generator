@@ -65,10 +65,7 @@ func set_orbit_slots():
 		slot.init_planet(self)
 
 func set_star_specs_debug():
-	var valid_classes = get_valid_star_classes(pop)
-	if (valid_classes.size() > 1):
-		valid_classes.shuffle()
-	star_class = AstronomyData.StarClass.M if valid_classes.size() == 0 else valid_classes[0]
+	star_class = pick_star_class(get_valid_star_classes(pop))
 	l = randf_range(AstronomyData.DATABASE.StarClass.luminosity[star_class][0],AstronomyData.DATABASE.StarClass.luminosity[star_class][1])
 	var min_m = AstronomyData.DATABASE.StarClass.minMetalicity[star_class]
 	var max_m = AstronomyData.DATABASE.StarPopulation[pop].metalicity
@@ -92,6 +89,21 @@ func add_to_universe_data() :
 		data[AstronomyData.StarClass.find_key(star_class)] += 1
 	else:
 		data[AstronomyData.StarClass.find_key(star_class)] = 1
+
+## Weighted pick among the allowed classes: abundance ^ class_realism (see AstronomyData).
+static func pick_star_class(valid : Array) -> AstronomyData.StarClass:
+	if valid.is_empty():
+		return AstronomyData.StarClass.M
+	var realism : float = AstronomyData.DATABASE.Constants.class_realism
+	var weights : Array = valid.map(func(sc): return pow(AstronomyData.DATABASE.StarClass.abundance[sc], realism))
+	var total : float = 0.0
+	for w in weights: total += w
+	var roll : float = randf() * total
+	for i in valid.size():
+		roll -= weights[i]
+		if roll <= 0.0:
+			return valid[i]
+	return valid[-1]
 
 func get_valid_star_classes(pop : AstronomyData.StarPop) -> Array:
 	var pop_metallicity = AstronomyData.DATABASE.StarPopulation[pop].metalicity
