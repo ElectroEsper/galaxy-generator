@@ -47,9 +47,9 @@ static func _share(sim, e) -> float:
 	if sim.wars.any(func(w): return w["a"] == e or w["b"] == e):
 		return SHARE_WAR
 	if sim.tick_count / 12 < e.arming_until:
-		return SHARE_ARMING
+		return SHARE_ARMING * (0.3 + 1.4 * Personality.t(e, "militarism"))
 	var met : bool = sim.empires.any(func(x): return x != e and sim._rel(e, x)["met"])
-	return SHARE_PEACE if met else SHARE_UNMET
+	return SHARE_PEACE * (0.3 + 1.4 * Personality.t(e, "militarism")) if met else SHARE_UNMET
 
 ## Pay upkeep, then buy new strength with this month's military budget (goods from the capital's shelves, at its prices).
 static func _fund(sim, e) -> void:
@@ -170,6 +170,10 @@ static func make_peace(sim, w : Dictionary) -> void:
 			winner.known[s] = true
 			ceded.append("%s -> %s" % [s.name, winner.name])
 	sim.wars.erase(w)
+	var gain_a : int = ceded.filter(func(c): return c.ends_with(a.name)).size()
+	var gain_b : int = ceded.size() - gain_a
+	if gain_a > gain_b: Personality.on_peace(sim, a, b, gain_a)
+	elif gain_b > gain_a: Personality.on_peace(sim, b, a, gain_b)
 	var r : Dictionary = sim._rel(a, b)
 	r["stance"] = "hostile"
 	r["truce_until"] = sim.tick_count / 12 + TRUCE_YEARS

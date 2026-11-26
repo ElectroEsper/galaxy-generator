@@ -24,6 +24,8 @@ var exhaustion : float = 0.0
 var month_tax : float = 0.0          # taxes collected this month (the military budget is a share of it)
 var mil_spent : float = 0.0
 var arming_until : int = 0            # year until which the planner wants extra armament
+var traits : Dictionary = {}          # personality (see personality.gd); empty = all 0.5
+var stability : float = 0.5
 var refusals : Dictionary = {}       # other empire id -> year it last refused a proposal (diplomacy cooldown)
 # Known space: systems this empire has charted (SystemNode -> true)
 var known : Dictionary = {}

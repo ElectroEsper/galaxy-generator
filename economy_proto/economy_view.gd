@@ -259,7 +259,7 @@ func _draw_map() -> void:
 			var pop : float = 0.0
 			for m in own: pop += m.pop
 			draw_rect(Rect2(Vector2(16, ey - 10), Vector2(12, 12)), e.color)
-			draw_string(font, Vector2(34, ey), "%s   %d colonies, %d systems, pop %d, treasury %dk   strength %d%s" % [e.name, own.size(), nsys, pop, e.treasury / 1000.0, e.strength, _war_note(e)], HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
+			draw_string(font, Vector2(34, ey), "%s   %d colonies, %d systems, pop %d, treasury %dk   strength %d   [%s]%s" % [e.name, own.size(), nsys, pop, e.treasury / 1000.0, e.strength, Personality.label(e), _war_note(e)], HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
 			ey += 16.0
 	var lx : float = 16.0
 	for g in Goods.ALL:
