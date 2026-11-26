@@ -317,7 +317,7 @@ impl World {
                 if Self::unit_margin(c, f.good, false) <= 0.0 {
                     continue;
                 }
-                let q = c.rich().get(f.good) * f.level_mult() * out_factor;
+                let q = c.rich().get(f.good) * f.level_mult() * out_factor * c.tech_mult[f.good];
                 c.stock[f.good] += q;
                 self.corps[ki].cash += q * (c.price[f.good] - goods::raw_cost(f.good));
             } else {
@@ -343,7 +343,7 @@ impl World {
                     c.stock[i] -= n;
                     cash -= n * c.price[i];
                 }
-                let out = runs * r.yield_;
+                let out = runs * r.yield_ * c.tech_mult[f.good];
                 c.stock[f.good] += out;
                 cash += out * c.price[f.good];
                 self.corps[ki].cash += cash;
@@ -728,9 +728,11 @@ impl World {
         self.corps[ki].route_memo.clear();
         let colonize = self.cfg.colonize;
         let ships = self.corps[ki].ships;
-        let mut budget = (1 + ships) as f64 * SHIP_TIME;
+        // Logistics tech of the owning empire: more cargo per ship, faster turnarounds.
+        let lt = self.corps[ki].empire.map_or(0, |e| self.empires[e].tech[crate::tech::T_LOGISTICS]) as f64;
+        let mut budget = (1 + ships) as f64 * SHIP_TIME * (1.0 + crate::tech::LOG_SPEED_BONUS * lt);
         let total_budget = budget;
-        let cap = self.corps[ki].ship_capacity();
+        let cap = self.corps[ki].ship_capacity() * (1.0 + crate::tech::LOG_CAP_BONUS * lt);
         let mut done = 0;
         let moved_before = self.corps[ki].moved;
         let mut last_rate = -1.0;

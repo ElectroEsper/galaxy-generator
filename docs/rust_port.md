@@ -422,3 +422,16 @@ Results:
 - **Stalled expansion.** An empire is also land-hungry when it hasn't settled a new system in `HUNGER_STALL_YEARS` (20) ÷ (0.5 + expansion) years. On big maps, free land never runs out but stops being worth settling. Save format v7 (`Empire::last_expansion`).
 
 Result at 1,000 systems and 32 empires over 207 years: 0 → 5 wars and 4 → 6 wars on the two test seeds, with "expand into" goals now appearing (35 in one run). Small galaxies: wars mean 5.4 (0–15).
+
+### Technology (`tech.rs`)
+Six fields per empire: Extraction (ore output), Agriculture (food and water output), Industry (metal and parts per batch of inputs), Habitation (population ceiling), Military (strength per unit built) and Logistics (freighter cargo and trips per month).
+- **Bonuses:** +6% per level for output fields, +5% for Habitation, +6% for Military, and +8% cargo / +4% trips for Logistics.
+- **Research:** 8% of tax income plus 0.02 points per head per month. It is split across fields by need: shortages in the empire's markets pull research toward the field that fixes them, and habitation pressure toward Habitation. Personality also weighs in: militarism favours Military, mercantile Logistics and Industry, expansion Habitation. War adds to Military.
+- **Cost:** a level costs 3000 × 1.5^level points.
+- **Diffusion:** met empires that are ahead speed research up by 15% per level of gap (doubled with a trade treaty or pact, capped at +100%).
+- **Where the multipliers live:** colonies hold them (`tech_mult` per good, `pop_mult`). They are refreshed on each level-up and yearly for every colony.
+- **Pace:** about level 4 by year 50, 8 by year 100 and 10–12 by year 200.
+- **Visibility:** in the empire panel, telemetry (`empires.csv` tech_* columns, `summary.json`) and events ("advances in Industry (level 5)").
+- **Save format:** v9.
+
+Effect: population ends 10–25% higher on the test seeds. **Shortages persist** (about 400 of ~500 colonies have food+parts prices above 2× base; metal and parts sit near 60 while ore is at 5). The cause is not output: new plants are built only while galaxy-wide nameplate capacity is below 1.3× galaxy-wide use. Metal plants far from ore sit idle for lack of input yet still count as supply, so no new plants come. Making that check local, or based on output actually made, is the real fix. A first attempt (counting recent real output) didn't help on its own and was reverted. It needs a proper look at the economy loop.

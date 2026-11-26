@@ -299,10 +299,11 @@ impl World {
         for &(g, q) in goods::MILITARY_UNIT {
             cost += self.buy_for_units(e, g, n * q).1;
         }
+        let mt = self.military_tech(e);
         let em = &mut self.empires[e];
         em.treasury -= cost;
         em.mil_spent += cost;
-        em.strength += n;
+        em.strength += n * mt;
     }
 
     // ------------------------------------------------------------ War

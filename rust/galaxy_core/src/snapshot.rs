@@ -62,6 +62,8 @@ pub struct EmpireView {
     pub fleet: f64,
     pub army: f64,
     pub operations: u32,
+    /// Technology levels, in tech::FIELDS order.
+    pub tech: Vec<u32>,
 }
 
 /// A fleet or army on the map.
@@ -138,6 +140,7 @@ impl World {
                 fleet: self.forces.iter().filter(|f| f.owner == e.id && f.kind == crate::forces::ForceKind::Fleet).map(|f| f.strength).sum(),
                 army: self.forces.iter().filter(|f| f.owner == e.id && f.kind == crate::forces::ForceKind::Army).map(|f| f.strength).sum(),
                 operations: self.ops.iter().filter(|o| o.empire == e.id).count() as u32,
+                tech: e.tech.to_vec(),
             });
         }
         // Every enemy pair, for drawing (coalition members included).
