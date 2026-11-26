@@ -65,12 +65,13 @@ func set_orbit_slots():
 		slot.init_planet(self)
 
 func set_star_specs_debug():
-	star_class = pick_star_class(get_valid_star_classes(pop))
+	# Age first (from the population), then the classes whose stars live that long, weighted by abundance
+	age = randf_range(AstronomyData.DATABASE.StarPopulation[pop].age_min,AstronomyData.DATABASE.StarPopulation[pop].age_max)
+	star_class = pick_star_class(get_valid_star_classes(pop, age))
 	l = randf_range(AstronomyData.DATABASE.StarClass.luminosity[star_class][0],AstronomyData.DATABASE.StarClass.luminosity[star_class][1])
 	var min_m = AstronomyData.DATABASE.StarClass.minMetalicity[star_class]
 	var max_m = AstronomyData.DATABASE.StarPopulation[pop].metalicity
 	metallicity = randf_range(min(min_m, max_m), max(min_m, max_m))
-	age = randf_range(AstronomyData.DATABASE.StarPopulation[pop].age_min,AstronomyData.DATABASE.StarPopulation[pop].age_max)
 	var mult = (age - AstronomyData.DATABASE.StarPopulation[pop].age_min) / (AstronomyData.DATABASE.StarPopulation[pop].age_max - AstronomyData.DATABASE.StarPopulation[pop].age_min)
 	mass = AstronomyData.DATABASE.StarClass.mass[star_class][0] * (1 + mult)
 	
@@ -105,10 +106,14 @@ static func pick_star_class(valid : Array) -> AstronomyData.StarClass:
 			return valid[i]
 	return valid[-1]
 
-func get_valid_star_classes(pop : AstronomyData.StarPop) -> Array:
+## Classes a star of this population can be: allowed by the population's metallicity and, when an age is given,
+## still alive at that age (class lifetime above it).
+func get_valid_star_classes(pop : AstronomyData.StarPop, star_age : float = -1.0) -> Array:
 	var pop_metallicity = AstronomyData.DATABASE.StarPopulation[pop].metalicity
 	var valid : Array = []
 	for sc in AstronomyData.DATABASE.StarClass.minMetalicity:
+		if star_age >= 0.0 and AstronomyData.DATABASE.StarClass.lifetime[sc] < star_age:
+			continue
 		if AstronomyData.DATABASE.StarClass.minMetalicity[sc] <= pop_metallicity:
 			valid.append(sc)
 	

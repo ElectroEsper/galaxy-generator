@@ -8,7 +8,7 @@ const DATABASE : Dictionary = {
 	StarPopulation = {
 		StarPop.POP1 : {
 			metalicity = 3.0,
-			age_min = 0.1,
+			age_min = 0.01,       # was 0.1: the youngest regions are the only place short-lived O/B stars still shine
 			age_max = 6
 		},
 		StarPop.POP1i : {
@@ -63,6 +63,17 @@ const DATABASE : Dictionary = {
 			StarClass.G : [0,6],
 			StarClass.K : [0,5],
 			StarClass.M : [0,4]
+		},
+		# Main-sequence lifetime, in billions of years (upper end for the class). A star exists only if the system's age is
+		# below its class lifetime: old populations have lost their O, B, A and most F stars.
+		lifetime = {
+			StarClass.O : 0.02,
+			StarClass.B : 0.4,
+			StarClass.A : 2.0,
+			StarClass.F : 5.0,
+			StarClass.G : 12.0,
+			StarClass.K : 50.0,
+			StarClass.M : 1000.0
 		},
 		# Share of main-sequence stars by class in the real galaxy (by count; Ledrew 2001 / Habets & Heintze 1981).
 		# Used as selection weights among the classes a star's metallicity allows, raised to
