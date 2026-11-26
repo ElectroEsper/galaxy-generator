@@ -8,5 +8,11 @@ pub mod market;
 pub mod corp;
 pub mod world;
 pub mod metrics;
+pub mod military;
+pub mod personality;
+pub mod threat;
+pub mod alliances;
+pub mod treaties;
+pub mod diplomacy;
 
 pub use world::{Config, World};

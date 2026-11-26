@@ -1,6 +1,6 @@
 # Rust port: design
 
-Status: **design only, nothing built.** This document is updated whenever a feature lands in the GDScript prototype
+Status: **stages 1-2 built** (`rust/`): goods crate, economy, colonization, relations, war, diplomacy, personality, threat, alliances, treaties, CLI. Not yet: Godot extension (`galaxy_gd`), image-driven galaxy placement, the planet classifier (names only), parallelism. This document is updated whenever a feature lands in the GDScript prototype
 (`economy_proto/`), so the port's shape keeps up with the rules. See the changelog at the end.
 
 ## 1. Why, and when
@@ -244,6 +244,13 @@ Each feature in the prototype, with what the port must carry. New rows are added
 | Threat assessment | `threat.gd` | `threat[]` per empire, `main_threat`, `wars_started` (years), `systems_taken`, `sys_history` (yearly) |
 
 ## 11. Changelog
+
+- 2026-11-25: **built.** `galaxy_goods` crate added at William's request: every goods table (goods, raw costs, recipes,
+  population consumption, maintenance, salvage, subsistence, construction materials, military unit and upkeep goods)
+  in one crate, read by the sim. Parity testing against GDScript was dropped by decision; behaviour was checked by
+  comparing run shapes. Speed: 46 systems x 4 empires x 180 years in 3.8 s (GDScript ~300-500 s).
+  Two GDScript slips were ported as intended rather than as written: the thermal lifespan uses a real cube root
+  (GDScript's `1/3` is integer 0), and moon counts check the planet type.
 
 - 2026-11-25: added `core::treaties`. Terms are a tagged enum (`Cede(SystemId) | Reparations | OpenMarket | Transit |
   Demilitarize | Humiliate`), valued by one pure function so negotiation and war-gaming share it.

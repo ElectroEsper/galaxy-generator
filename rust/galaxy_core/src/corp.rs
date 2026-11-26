@@ -302,7 +302,7 @@ impl World {
                 }
             }
             let f = self.corps[ki].facilities[fi].clone();
-            let out_factor = 1.0; // war output factor (next port stage)
+            let out_factor = self.output_factor(f.colony);
             let c = &mut self.colonies[f.colony];
             if f.extracts() {
                 if Self::unit_margin(c, f.good, false) <= 0.0 {

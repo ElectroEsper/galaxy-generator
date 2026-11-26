@@ -99,7 +99,9 @@ impl World {
             rows.push(format!(
                 "{},{},{},{},{:.0},{},{},{},{},{:.0},{:.0},{},{},{},{:.0},{:.0},{:.1},{:.0},{},{},{},{:.0},{},{:.2},{:.0}",
                 self.tick, e.id, own.len(), sys.len(), pop, fac, e.known.iter().filter(|&&k| k).count(), surveyed, sships, e.treasury, e.tax_collected,
-                e.state_colonies, e.sector_events, corps.len(), e.customs_collected, 0.0, 0.0, 0.0, 0, 0, "balanced", 0.0, 0, 0.0, 50.0
+                e.state_colonies, e.sector_events, corps.len(), e.customs_collected, e.strength, e.exhaustion, e.mil_spent,
+                self.systems.iter().filter(|s| s.owner == Some(e.id) && s.occupier.is_some()).count(), self.in_any_war(e.id) as i32,
+                crate::personality::label(self, e.id), e.target_strength, e.main_threat.map_or(0, |t| t + 1), e.max_threat, e.reputation
             ));
         }
         rows
@@ -112,8 +114,9 @@ impl World {
             for b in (a + 1)..n {
                 let r = self.rel(a, b);
                 rows.push(format!(
-                    "{},{},{},{},{:.1},{},{},{:.1},{:.2},{},{},{:.1},{},",
-                    self.tick, a, b, r.met as i32, r.opinion, r.stance.name(), r.border, r.trade, r.incidents, r.trade_treaty as i32, r.passage as i32, r.goodwill, 0
+                    "{},{},{},{},{:.1},{},{},{:.1},{:.2},{},{},{:.1},{},{}",
+                    self.tick, a, b, r.met as i32, r.opinion, r.stance.name(), r.border, r.trade, r.incidents, r.trade_treaty as i32, r.passage as i32, r.goodwill, r.pact as i32,
+                    [(a, b), (b, a)].iter().filter(|(g, x)| self.empires[*g].guarantees_(*x)).map(|(g, x)| format!("{}>{}", g, x)).collect::<Vec<_>>().join("/")
                 ));
             }
         }

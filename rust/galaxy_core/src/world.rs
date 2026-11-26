@@ -99,11 +99,23 @@ pub struct Relation {
     pub trade_treaty: bool,
     pub passage: bool,
     pub goodwill: f64,
+    pub truce_until: i64,
+    pub pact: bool,
+    pub pact_year: i64,
+    /// Trust of the lower-id empire in the higher, and of the higher in the lower (0..100).
+    pub trust: [f64; 2],
+    pub reparations: Option<crate::treaties::Reparations>,
+    pub forced_market: Option<(usize, i64)>,
+    pub forced_transit: Option<(usize, i64)>,
 }
 
 impl Default for Relation {
     fn default() -> Self {
-        Relation { met: false, opinion: 0.0, trade: 0.0, month_trade: 0.0, border: 0, incidents: 0.0, stance: Stance::None, trade_treaty: false, passage: false, goodwill: 0.0 }
+        Relation {
+            met: false, opinion: 0.0, trade: 0.0, month_trade: 0.0, border: 0, incidents: 0.0, stance: Stance::None, trade_treaty: false,
+            passage: false, goodwill: 0.0, truce_until: 0, pact: false, pact_year: 0, trust: [50.0; 2], reparations: None,
+            forced_market: None, forced_transit: None,
+        }
     }
 }
 
@@ -126,6 +138,30 @@ pub struct Empire {
     pub known: Vec<bool>,
     /// Personality traits, 0..1: aggression, expansion, mercantile, xenophobia, militarism, caution, intervention.
     pub traits: [f64; 7],
+    pub base_traits: [f64; 7],
+    pub stability: f64,
+    pub regime_year: i64,
+    // Military (military.rs)
+    pub strength: f64,
+    pub exhaustion: f64,
+    pub avg_tax: f64,
+    pub target_strength: f64,
+    pub mil_spent: f64,
+    pub arming_until: i64,
+    // Diplomacy, threat, alliances, treaties
+    pub refusals: HashMap<usize, i64>,
+    pub threat: [f64; MAX_EMPIRES],
+    pub max_threat: f64,
+    pub main_threat: Option<usize>,
+    pub wars_started: Vec<i64>,
+    pub systems_taken: i32,
+    pub sys_history: Vec<usize>,
+    /// (protected empire, the threat it is protected against, start year)
+    pub guarantees: Vec<(usize, Option<usize>, i64)>,
+    pub reputation: f64,
+    pub revanche: Vec<crate::treaties::Revanche>,
+    pub demilitarized_until: i64,
+    pub demilitarized_by: Option<usize>,
     // Per-month caches (cleared at the start of each tick and whenever a colony is founded)
     pub near_cache: HashMap<u64, usize>,
     pub donor_cache: HashMap<u64, Option<usize>>,
@@ -146,12 +182,23 @@ pub struct ObRow {
     pub cost: f64,
 }
 
+pub const TRAIT_AGGRESSION: usize = 0;
+pub const TRAIT_EXPANSION: usize = 1;
 pub const TRAIT_MERCANTILE: usize = 2;
 pub const TRAIT_XENOPHOBIA: usize = 3;
+pub const TRAIT_MILITARISM: usize = 4;
+pub const TRAIT_CAUTION: usize = 5;
+pub const TRAIT_INTERVENTION: usize = 6;
 
 impl Empire {
     pub fn w(&self, t: usize) -> f64 {
         0.5 + self.traits[t]
+    }
+    pub fn t(&self, t: usize) -> f64 {
+        self.traits[t]
+    }
+    pub fn guarantees_(&self, x: usize) -> bool {
+        self.guarantees.iter().any(|g| g.0 == x)
     }
     pub fn clear_caches(&mut self) {
         self.near_cache.clear();
@@ -176,6 +223,10 @@ pub struct World {
     pub corps: Vec<Corp>,
     pub empires: Vec<Empire>,
     pub relations: Vec<Relation>,
+    pub wars: Vec<crate::military::War>,
+    pub next_war_id: usize,
+    /// Separate random stream for personality, so it never shifts the economy's random numbers.
+    pub prng: Rng,
     pub events: Vec<(u32, String)>,
     pub promotions: i32,
     pub attractions: i32,
@@ -205,6 +256,9 @@ impl World {
     pub fn new(cfg: Config) -> World {
         let mut w = World {
             rng: Rng::new(cfg.seed),
+            prng: Rng::new(cfg.seed.wrapping_mul(7919).wrapping_add(12345)),
+            wars: vec![],
+            next_war_id: 0,
             cfg,
             tick: 0,
             colonies: vec![],
@@ -355,6 +409,27 @@ impl World {
                 customs_collected: 0.0,
                 known: vec![false; nsys],
                 traits: [0.5; 7],
+                base_traits: [0.5; 7],
+                stability: 0.5,
+                regime_year: -100,
+                strength: 0.0,
+                exhaustion: 0.0,
+                avg_tax: 0.0,
+                target_strength: 0.0,
+                mil_spent: 0.0,
+                arming_until: 0,
+                refusals: HashMap::new(),
+                threat: [0.0; MAX_EMPIRES],
+                max_threat: 0.0,
+                main_threat: None,
+                wars_started: vec![],
+                systems_taken: 0,
+                sys_history: vec![],
+                guarantees: vec![],
+                reputation: 50.0,
+                revanche: vec![],
+                demilitarized_until: 0,
+                demilitarized_by: None,
                 near_cache: HashMap::new(),
                 donor_cache: HashMap::new(),
                 donor_any: None,
@@ -369,6 +444,11 @@ impl World {
             c.pop = CAPITAL_POP;
         }
         self.relations = vec![Relation::default(); n * n];
+        if n > 1 {
+            for e in 0..n {
+                crate::personality::generate(self, e);
+            }
+        }
         for c in 0..self.colonies.len() {
             if !capitals.contains(&c) {
                 self.colonies[c].make_frontier();
@@ -999,6 +1079,7 @@ impl World {
             }
             if self.systems[s].bodies.iter().any(|&b| self.colonies[b].surveys_by(other) > 0) {
                 self.rel_mut(e, other).incidents += 1.0;
+                crate::personality::shift(self, other, TRAIT_XENOPHOBIA, 0.05, "");
                 let t = format!("{} settled {}, which {} had surveyed (incident)", self.empires[e].name, self.systems[s].name, self.empires[other].name);
                 self.event(t);
             }
@@ -1012,6 +1093,11 @@ impl World {
             if let Some(o) = s.owner {
                 owned[o].push(s.id);
             }
+        }
+        let mut at_war = vec![false; n * n];
+        for wr in &self.wars {
+            let (x, y) = (wr.a.min(wr.b), wr.a.max(wr.b));
+            at_war[x * n + y] = true;
         }
         for a in 0..n {
             for b in (a + 1)..n {
@@ -1044,6 +1130,9 @@ impl World {
                 r.goodwill *= INCIDENT_DECAY;
                 let target = TRADE_WEIGHT * merc * (1.0 + r.trade).ln() - BORDER_WEIGHT * xeno * border as f64 - INCIDENT_PENALTY * r.incidents + GOODWILL_WEIGHT * r.goodwill;
                 r.opinion = (r.opinion + OPINION_RATE * (target - r.opinion)).clamp(-100.0, 100.0);
+                if at_war[a * n + b] {
+                    continue; // at war: stance stays "embargo" until peace
+                }
                 let st = if r.opinion >= 25.0 {
                     Stance::Friendly
                 } else if r.opinion <= -60.0 {
@@ -1176,6 +1265,7 @@ impl World {
                 match k.empire {
                     Some(e) => {
                         let em = &mut self.empires[e];
+                        let _ = &em;
                         em.treasury += tax;
                         em.tax_collected += tax;
                         em.month_tax += tax;
@@ -1193,6 +1283,12 @@ impl World {
             }
             if self.empires.len() > 1 {
                 self.update_relations();
+                self.mark_fronts();
+                self.military_monthly();
+                self.occupation_effects();
+                if t % 12 == 6 {
+                    self.diplomacy_yearly();
+                }
             }
             if self.cfg.state && t % STATE_REVIEW_MONTHS == STATE_REVIEW_MONTHS - 1 {
                 for e in 0..self.empires.len() {
