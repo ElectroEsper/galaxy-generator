@@ -1,6 +1,6 @@
 # Rust port: design
 
-Status: **design only, nothing built.** This document is updated whenever a feature lands in the GDScript prototype
+Status: **built** (`rust/`): goods crate, economy, colonization, relations, war, diplomacy, personality, threat, alliances, treaties, CLI, and the Godot extension (`GalaxySim`, used by `economy_proto/rust_view.tscn`). Rust is now the source of truth for star and planet generation, including the planet classifier and image-driven placement. Not yet: multi-core parallelism, war-gaming. This document is updated whenever a feature lands in the GDScript prototype
 (`economy_proto/`), so the port's shape keeps up with the rules. See the changelog at the end.
 
 ## 1. Why, and when
@@ -244,6 +244,28 @@ Each feature in the prototype, with what the port must carry. New rows are added
 | Threat assessment | `threat.gd` | `threat[]` per empire, `main_threat`, `wars_started` (years), `systems_taken`, `sys_history` (yearly) |
 
 ## 11. Changelog
+
+- 2026-11-26: planet classifier (`astro::classify`) and image-driven placement (`astro::PlacementMaps`) ported; the CLI
+  loads PNGs (`maps=default` or `maps=<dir>`), the extension loads them through Godot's Image (`density_map`,
+  `population_map` keys). CI (`.github/workflows/rust.yml`) builds Linux and Windows and uploads `galaxy_gd.dll`.
+
+- 2026-11-25: `galaxy_gd` built (godot-rust 0.5.6, `api-4-7`). `GalaxySim` runs the World on a Rust thread and keeps
+  the newest `Snapshot` (plain data, `galaxy_core::snapshot`); `poll()` turns it into a Dictionary of packed arrays
+  only when a new month is ready. `World` uses `Arc` instead of `Rc` so it can live on that thread.
+
+- 2026-11-25: Rust-only rule fixes found by 500-year runs (not back-ported to GDScript): trade drift is one small
+  nudge a year (not one per partner); incident drift 0.02; a regime change jumps from the old regime's values instead
+  of locking in the drifted traits. Together these stopped every empire converging to the same personality.
+  Performance: per-phase profiling (`PROFILE` lines), planner restricted to the goal's partner, incremental survey
+  board, claim counter, monthly opportunity boards re-checked at pick time, per-empire known-bodies list, incremental
+  nearest-colony cache, monthly freight lane lists. 1000 systems x 8 empires x 500 years: 324 s -> 111 s.
+
+- 2026-11-25: **built.** `galaxy_goods` crate added at William's request: every goods table (goods, raw costs, recipes,
+  population consumption, maintenance, salvage, subsistence, construction materials, military unit and upkeep goods)
+  in one crate, read by the sim. Parity testing against GDScript was dropped by decision; behaviour was checked by
+  comparing run shapes. Speed: 46 systems x 4 empires x 180 years in 3.8 s (GDScript ~300-500 s).
+  Two GDScript slips were ported as intended rather than as written: the thermal lifespan uses a real cube root
+  (GDScript's `1/3` is integer 0), and moon counts check the planet type.
 
 - 2026-11-25: added `core::treaties`. Terms are a tagged enum (`Cede(SystemId) | Reparations | OpenMarket | Transit |
   Demilitarize | Humiliate`), valued by one pure function so negotiation and war-gaming share it.

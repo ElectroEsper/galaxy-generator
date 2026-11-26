@@ -1,0 +1,8 @@
+[package]
+name = "galaxy_core"
+version = "0.1.0"
+edition = "2021"
+description = "Simulation core of the galaxy economy (port of economy_proto/)"
+
+[dependencies]
+galaxy_goods = { path = "../galaxy_goods" }

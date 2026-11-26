@@ -1,0 +1,47 @@
+name: Rust
+
+on:
+  push:
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+  pull_request:
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo build --release
+      - name: Smoke test (4 empires, 50 years)
+        run: ./target/release/galaxy_cli growth=1 colonize=1 systems=46 empires=4 planets=100 ticks=600 | tail -3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: galaxy_gd-linux
+          path: rust/target/release/libgalaxy_gd.so
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo build --release -p galaxy_gd -p galaxy_cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: galaxy_gd-windows
+          path: |
+            rust/target/release/galaxy_gd.dll
+            rust/target/release/galaxy_cli.exe

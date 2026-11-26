@@ -1,0 +1,12 @@
+[package]
+name = "galaxy_gd"
+version = "0.1.0"
+edition = "2021"
+description = "Godot 4.7 extension: runs galaxy_core on its own thread and hands the view a snapshot each month"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+galaxy_core = { path = "../galaxy_core" }
+godot = { version = "0.5.6", features = ["api-4-7"] }
