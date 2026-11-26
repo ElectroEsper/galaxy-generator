@@ -90,6 +90,14 @@ impl World {
                 out.push((y, 1, p));
             } else if bound_a && !bound_b {
                 out.push((y, 0, 0.25));
+            } else if !bound_a {
+                // No treaty, but sympathy for the defender or fear of the attacker can bring an empire in.
+                let friendly = side_b.iter().any(|&b| self.rel(y, b).stance == crate::world::Stance::Friendly);
+                let fears = side_a.iter().any(|&a| self.empires[y].main_threat == Some(a) || self.empires[y].threat[a] >= 1.5);
+                let p = 0.06 * friendly as i32 as f64 + 0.12 * fears as i32 as f64 * (0.5 + self.empires[y].t(crate::world::TRAIT_INTERVENTION));
+                if p > 0.0 {
+                    out.push((y, 1, p.min(0.3)));
+                }
             }
         }
         out

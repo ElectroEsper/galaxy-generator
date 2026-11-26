@@ -67,7 +67,9 @@ impl World {
             }
             let ey = &self.empires[y];
             let bound_b = crate::alliances::has_pact(self, y, p.b) || ey.guarantees_(p.b);
-            let fears_a = ey.main_threat == Some(p.a) || ey.threat[p.a] >= 1.5;
+            // Fear alone moves only empires with a stake: a border with the demander or the target.
+            let stake = self.rel(y, p.a).border > 0 || self.rel(y, p.b).border > 0;
+            let fears_a = stake && (ey.main_threat == Some(p.a) || ey.threat[p.a] >= 1.5);
             let pact_a = crate::alliances::has_pact(self, y, p.a);
             let chance_b = if bound_b {
                 0.6 + 0.4 * (1.0 - ey.t(TRAIT_CAUTION))

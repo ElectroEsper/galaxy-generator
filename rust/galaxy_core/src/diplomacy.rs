@@ -196,8 +196,16 @@ pub fn land_hungry(w: &World, e: usize) -> bool {
     if mine.len() < 5 {
         return false;
     }
-    !w.systems.iter().any(|s| s.owner.is_none() && mine.iter().any(|&m| dist(w.systems[m].pos, s.pos) <= HUNGER_RANGE))
+    // Hungry when little free land is left within reach compared with what it already holds (expansionists want
+    // more room). A strict "none at all" rule left big galaxies at peace for centuries.
+    let free = w.systems.iter().filter(|s| s.owner.is_none() && mine.iter().any(|&m| dist(w.systems[m].pos, s.pos) <= HUNGER_RANGE)).count();
+    let want = HUNGER_FREE_SHARE * (0.5 + w.empires[e].t(crate::world::TRAIT_EXPANSION));
+    (free as f64) < want * mine.len() as f64
 }
+
+/// Free systems within reach, as a share of systems held, below which an empire feels short of land (×0.5–1.5 by
+/// expansionism).
+pub const HUNGER_FREE_SHARE: f64 = 0.3;
 
 fn owner_at(w: &World, p: (f64, f64)) -> Option<usize> {
     let mut best = None;
@@ -435,9 +443,13 @@ impl World {
                 self.empires[e].treasury -= AID_COST;
                 self.empires[x].treasury += AID_COST;
                 let r = self.rel_mut(e, x);
+                // Log only the start of an aid programme, not every yearly instalment.
+                let new_programme = r.goodwill < AID_GOODWILL * 0.3;
                 r.goodwill += AID_GOODWILL;
                 r.opinion = (r.opinion + AID_GOODWILL * 0.5).min(100.0);
-                self.event(format!("{} sends aid to {} (goal: {})", en, xn, goal.name));
+                if new_programme {
+                    self.event(format!("{} begins sending aid to {} (goal: {})", en, xn, goal.name));
+                }
             }
             Act::ProposeTrade => {
                 if accepts_trade(self, x, e) {
@@ -457,6 +469,9 @@ impl World {
             Act::SueForPeace => {
                 if let Some(id) = self.war_between(e, x) {
                     let wi = self.war_index(id).unwrap();
+                    if self.tick - self.wars[wi].start < crate::military::MIN_WAR_MONTHS {
+                        return;
+                    }
                     let side = self.wars[wi].side_of(e).unwrap();
                     if self.wars[wi].leader(side) == e {
                         if !crate::treaties::negotiate(self, id, e) {

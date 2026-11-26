@@ -131,6 +131,21 @@ pub fn score(w: &World, war_id: usize, side: usize) -> f64 {
     (12.0 * (held - lost) + st + 0.4 * (avg_exh(them) - avg_exh(us))).clamp(-100.0, 100.0)
 }
 
+/// Share of a system's neighbours that empire `a` owns: 1.0 for an enclave inside a's territory, 0 for a system
+/// that would stick out as a salient. Neighbours are jump lanes when built, else systems within border range.
+pub fn contiguity(w: &World, s: usize, a: usize) -> f64 {
+    let neigh: Vec<usize> = if w.jump_lanes.len() == w.systems.len() {
+        w.jump_lanes[s].clone()
+    } else {
+        (0..w.systems.len()).filter(|&o| o != s && crate::market::dist(w.systems[o].pos, w.systems[s].pos) <= crate::world::BORDER_RANGE).collect()
+    };
+    if neigh.is_empty() {
+        return 0.0;
+    }
+    neigh.iter().filter(|&&o| w.systems[o].owner == Some(a)).count() as f64 / neigh.len() as f64
+}
+
+#[allow(dead_code)]
 fn by_pop_desc(w: &World, list: &mut [usize], owner: usize) {
     list.sort_by(|&x, &y| system_pop(w, y, owner).partial_cmp(&system_pop(w, x, owner)).unwrap().then(w.systems[x].name.cmp(&w.systems[y].name)));
 }
@@ -146,7 +161,10 @@ pub fn choose_goals(w: &World, a: usize, b: usize) -> Vec<Term> {
     let n = 1 + (2.0 * ea.t(TRAIT_EXPANSION) * ea.t(TRAIT_AGGRESSION)).round() as usize;
     let cap = w.empires[b].capital;
     let mut cands: Vec<usize> = w.fronts(b, a).into_iter().filter(|&s| !w.systems[s].bodies.contains(&cap) && !claims.contains(&s)).collect();
-    by_pop_desc(w, &mut cands, b);
+    // Consolidation first: systems mostly surrounded by our territory (enclaves, salients) tidy the border; then
+    // the most populous. Ties keep name order.
+    let fit = |s: usize| contiguity(w, s, a) * 10.0 + system_pop(w, s, b).ln_1p();
+    cands.sort_by(|&x, &y| fit(y).partial_cmp(&fit(x)).unwrap().then(w.systems[x].name.cmp(&w.systems[y].name)));
     for &s in cands.iter().take(n.saturating_sub(claims.len())) {
         goals.push(Term { kind: TermKind::Cede, system: Some(s), from: b, to: a });
     }
