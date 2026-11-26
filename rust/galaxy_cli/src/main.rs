@@ -9,6 +9,7 @@ fn main() {
     let mut cfg = Config::default();
     let mut ticks: u32 = 600;
     let (mut save, mut load) = (None::<String>, None::<String>);
+    let mut telemetry: Option<String> = None;
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), ""));
         match k {
@@ -29,6 +30,8 @@ fn main() {
                 rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("thread pool");
             }
             "save" => save = Some(v.to_string()),
+            // telemetry=<dir>: write galaxy/empires/relations/events/wars CSVs and summary.json after the run
+            "telemetry" => telemetry = Some(v.to_string()),
             "load" => load = Some(v.to_string()),
             // personalities=<file.json>: archetype book (personalities=dump prints the built-in one and exits)
             "personalities" => {
@@ -87,6 +90,10 @@ fn main() {
     println!("TIME,total_s={:.2}", wall0.elapsed().as_secs_f64());
     for (k, v) in &w.prof {
         println!("PROFILE,{},{:.2}", k, v);
+    }
+    if let Some(dir) = telemetry {
+        w.export_telemetry(&dir).unwrap_or_else(|e| panic!("telemetry {}: {}", dir, e));
+        println!("INFO,telemetry={}", dir);
     }
     if let Some(p) = save {
         w.save_file(&p).unwrap_or_else(|e| panic!("save {}: {}", p, e));

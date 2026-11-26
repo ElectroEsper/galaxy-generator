@@ -270,6 +270,7 @@ impl World {
         peak[a] = sa;
         peak[b] = sb;
         self.wars.push(War { id, sides: [vec![a], vec![b]], start: self.tick, peak, goals, first_strike_until: -1 });
+        self.war_started(id, a, b, desc.clone());
         let y = self.year();
         self.empires[a].wars_started.push(y);
         crate::alliances::adjust_trust(self, b, a, crate::alliances::TRUST_ATTACKED);
@@ -292,6 +293,7 @@ impl World {
             return;
         }
         self.wars[wi].sides[side].push(e);
+        self.war_joined(war_id, e, side);
         let s = self.empires[e].strength;
         self.wars[wi].peak[e] = s;
         for o in self.wars[wi].sides[1 - side].clone() {
@@ -331,6 +333,8 @@ impl World {
             Some(i) => i,
             None => return,
         };
+        let note = format!("{} left ({})", self.empires[m].name, if collapsed { "collapsed" } else { "separate peace" });
+        self.war_note(war_id, note, false);
         self.forces_after_peace(war_id);
         let side = match self.wars[wi].side_of(m) {
             Some(s) => s,
@@ -372,6 +376,8 @@ impl World {
             None => return,
         };
         self.forces_after_peace(war_id);
+        let terms_desc = crate::treaties::describe_all(self, terms);
+        self.war_note(war_id, if terms_desc.is_empty() { "peace (white peace)".to_string() } else { format!("peace: {}", terms_desc) }, true);
         let w = self.wars.remove(wi);
         let (s0, s1) = (&w.sides[0], &w.sides[1]);
         for s in self.systems.iter_mut() {

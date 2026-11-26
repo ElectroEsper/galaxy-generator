@@ -254,6 +254,8 @@ pub struct World {
     pub plays: Vec<crate::plays::Play>,
     pub next_play_id: usize,
     /// Fleets and armies, operations, and the jump-lane graph they move on (forces.rs).
+    /// Running history of the playthrough (telemetry.rs).
+    pub telemetry: crate::telemetry::Telemetry,
     pub forces: Vec<crate::forces::Force>,
     pub next_force_id: usize,
     pub ops: Vec<crate::forces::Operation>,
@@ -311,6 +313,7 @@ impl World {
             next_war_id: 0,
             plays: vec![],
             next_play_id: 0,
+            telemetry: Default::default(),
             forces: vec![],
             next_force_id: 0,
             ops: vec![],
@@ -1629,12 +1632,13 @@ impl World {
             }
         }
         self.tick += 1;
+        self.record_telemetry();
     }
 }
 
 /// Save files: a magic tag and format version, then the whole World (bincode). Loading resumes exactly where the save
 /// was made, caches and random streams included.
-const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x04";
+const SAVE_MAGIC: &[u8; 8] = b"GALAXY\x00\x05";
 
 impl World {
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {

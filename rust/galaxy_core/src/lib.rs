@@ -18,5 +18,6 @@ pub mod snapshot;
 pub mod plays;
 pub mod forces;
 pub mod forecast;
+pub mod telemetry;
 
 pub use world::{Config, World};
