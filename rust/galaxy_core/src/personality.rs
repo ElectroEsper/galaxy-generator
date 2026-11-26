@@ -11,6 +11,9 @@ pub const REGIME_CRISIS: f64 = 0.06;
 pub const REGIME_JUMP: f64 = 0.35;
 pub const REGIME_COOLDOWN: i64 = 10;
 pub const REVERT: f64 = 0.04;
+pub const TRADE_DRIFT: f64 = 0.004;
+/// Xenophobia added to the victim of a claim-jumping incident.
+pub const INCIDENT_DRIFT: f64 = 0.02;
 
 pub fn generate(w: &mut World, e: usize) {
     let mut rng = Rng::new(w.cfg.seed.wrapping_mul(7919).wrapping_add(e as u64 * 104_729));
@@ -66,23 +69,27 @@ pub fn yearly(w: &mut World) {
         if crate::diplomacy::land_hungry(w, e) {
             shift(w, e, 1, 0.02, "");
         }
-        for x in 0..w.empires.len() {
-            if x != e && w.rel(e, x).trade_treaty {
-                shift(w, e, 2, 0.01, "");
-                shift(w, e, 3, -0.01, "");
-            }
+        // Trade breeds merchants and trust: one small nudge a year if the empire trades at all (not one per partner,
+        // which made every well-connected empire converge). Against REVERT this settles about +0.1 above the regime's
+        // own values.
+        if (0..w.empires.len()).any(|x| x != e && w.rel(e, x).trade_treaty) {
+            shift(w, e, 2, TRADE_DRIFT, "");
+            shift(w, e, 3, -TRADE_DRIFT, "");
         }
         let crisis = w.empires[e].exhaustion >= 60.0 || w.empires[e].treasury < 0.0;
         let chance = REGIME_BASE + if crisis { REGIME_CRISIS } else { 0.0 };
         if year >= w.empires[e].regime_year + REGIME_COOLDOWN && w.prng.randf() < chance {
+            // The new regime's values are the old regime's plus its own jumps; the accumulated drift is not locked in
+            // (resetting the base to the drifted traits made every empire ratchet toward the same profile).
             for t in 0..7 {
                 if w.prng.randf() < 0.4 {
                     let j = w.prng.range(-REGIME_JUMP, REGIME_JUMP);
-                    shift(w, e, t, j, "");
+                    let nb = (w.empires[e].base_traits[t] + j).clamp(0.0, 1.0);
+                    w.empires[e].base_traits[t] = nb;
+                    w.empires[e].traits[t] = nb;
                 }
             }
             w.empires[e].regime_year = year;
-            w.empires[e].base_traits = w.empires[e].traits;
             let s = w.empires[e].stability + w.prng.range(-0.2, 0.2);
             w.empires[e].stability = s.clamp(0.1, 0.95);
             let txt = format!("REGIME CHANGE in {}{}: now {}", w.empires[e].name, if crisis { " (crisis)" } else { "" }, label(w, e));

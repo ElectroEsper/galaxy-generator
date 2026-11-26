@@ -245,6 +245,13 @@ Each feature in the prototype, with what the port must carry. New rows are added
 
 ## 11. Changelog
 
+- 2026-11-25: Rust-only rule fixes found by 500-year runs (not back-ported to GDScript): trade drift is one small
+  nudge a year (not one per partner); incident drift 0.02; a regime change jumps from the old regime's values instead
+  of locking in the drifted traits. Together these stopped every empire converging to the same personality.
+  Performance: per-phase profiling (`PROFILE` lines), planner restricted to the goal's partner, incremental survey
+  board, claim counter, monthly opportunity boards re-checked at pick time, per-empire known-bodies list, incremental
+  nearest-colony cache, monthly freight lane lists. 1000 systems x 8 empires x 500 years: 324 s -> 111 s.
+
 - 2026-11-25: **built.** `galaxy_goods` crate added at William's request: every goods table (goods, raw costs, recipes,
   population consumption, maintenance, salvage, subsistence, construction materials, military unit and upkeep goods)
   in one crate, read by the sim. Parity testing against GDScript was dropped by decision; behaviour was checked by

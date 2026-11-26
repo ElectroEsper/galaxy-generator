@@ -1164,7 +1164,7 @@ impl World {
             }
             if self.systems[s].bodies.iter().any(|&b| self.colonies[b].surveys_by(other) > 0) {
                 self.rel_mut(e, other).incidents += 1.0;
-                crate::personality::shift(self, other, TRAIT_XENOPHOBIA, 0.05, "");
+                crate::personality::shift(self, other, TRAIT_XENOPHOBIA, crate::personality::INCIDENT_DRIFT, "");
                 let t = format!("{} settled {}, which {} had surveyed (incident)", self.empires[e].name, self.systems[s].name, self.empires[other].name);
                 self.event(t);
             }
