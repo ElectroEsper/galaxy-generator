@@ -26,6 +26,8 @@ var mil_spent : float = 0.0
 var arming_until : int = 0            # year until which the planner wants extra armament
 var traits : Dictionary = {}          # personality (see personality.gd); empty = all 0.5
 var stability : float = 0.5
+var base_traits : Dictionary = {}     # the current regime's values; traits drift back toward them
+var regime_year : int = -100
 var refusals : Dictionary = {}       # other empire id -> year it last refused a proposal (diplomacy cooldown)
 # Known space: systems this empire has charted (SystemNode -> true)
 var known : Dictionary = {}

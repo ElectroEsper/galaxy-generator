@@ -9,7 +9,9 @@ const TRAITS := ["aggression", "expansion", "mercantile", "xenophobia", "militar
 const DRIFT := 0.03                 # yearly random walk at stability 0
 const REGIME_BASE := 0.01           # yearly chance of a regime change
 const REGIME_CRISIS := 0.06         # ... added when exhausted (60+) or bankrupt
-const REGIME_JUMP := 0.35           # size of the shift for the traits a new regime changes
+const REGIME_JUMP := 0.35
+const REGIME_COOLDOWN := 10        # years before another regime change can happen
+const REVERT := 0.04               # yearly pull back toward the regime's own values (its identity)           # size of the shift for the traits a new regime changes
 
 static var rng := RandomNumberGenerator.new()   # own stream: never disturbs the sim's random numbers
 
@@ -17,6 +19,7 @@ static func generate(e, seed_value : int) -> void:
 	rng.seed = seed_value * 7919 + e.id * 104729
 	for t in TRAITS:
 		e.traits[t] = clampf(rng.randfn(0.5, 0.2), 0.05, 0.95)
+	e.base_traits = e.traits.duplicate()
 	e.stability = rng.randf_range(0.3, 0.9)
 
 static func t(e, name : String) -> float:
@@ -53,7 +56,7 @@ static func _shift(sim, e, name : String, amount : float, why : String = "") -> 
 static func yearly(sim) -> void:
 	for e in sim.empires:
 		for n in TRAITS:
-			_shift(sim, e, n, rng.randfn(0.0, DRIFT * (1.0 - e.stability)))
+			_shift(sim, e, n, rng.randfn(0.0, DRIFT * (1.0 - e.stability)) + REVERT * (e.base_traits.get(n, 0.5) - t(e, n)))
 		# Internal pressures
 		if e.treasury < 0.0:
 			_shift(sim, e, "caution", 0.03)
@@ -68,12 +71,14 @@ static func yearly(sim) -> void:
 				_shift(sim, e, "xenophobia", -0.01)
 		# Regime change
 		var crisis : bool = e.exhaustion >= 60.0 or e.treasury < 0.0
-		if rng.randf() < REGIME_BASE + (REGIME_CRISIS if crisis else 0.0):
+		if sim.tick_count / 12 >= e.regime_year + REGIME_COOLDOWN and rng.randf() < REGIME_BASE + (REGIME_CRISIS if crisis else 0.0):
 			var changed : Array = []
 			for n in TRAITS:
 				if rng.randf() < 0.4:
 					_shift(sim, e, n, rng.randf_range(-REGIME_JUMP, REGIME_JUMP))
 					changed.append(n)
+			e.regime_year = sim.tick_count / 12
+			e.base_traits = e.traits.duplicate()   # the new regime's values become what the empire drifts back to
 			e.stability = clampf(e.stability + rng.randf_range(-0.2, 0.2), 0.1, 0.95)
 			sim._event("REGIME CHANGE in %s%s: now %s" % [e.name, " (crisis)" if crisis else "", label(e)])
 
