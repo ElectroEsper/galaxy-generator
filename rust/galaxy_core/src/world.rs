@@ -1319,8 +1319,11 @@ impl World {
         }
         let mut at_war = vec![false; n * n];
         for wr in &self.wars {
-            let (x, y) = (wr.a.min(wr.b), wr.a.max(wr.b));
-            at_war[x * n + y] = true;
+            for &p in &wr.sides[0] {
+                for &q in &wr.sides[1] {
+                    at_war[p.min(q) * n + p.max(q)] = true;
+                }
+            }
         }
         for a in 0..n {
             for b in (a + 1)..n {
