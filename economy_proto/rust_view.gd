@@ -237,15 +237,27 @@ func _draw() -> void:
 	for ei in emps.size():
 		var e : Dictionary = emps[ei]
 		draw_rect(Rect2(16, y - 9, 10, 10), _empire_color(ei))
-		var war_note := ""
-		if e["at_war_with"].size() > 0:
-			war_note = "   AT WAR with %s, exhaustion %d" % [", ".join(e["at_war_with"]), e["exhaustion"]]
-		draw_string(font, Vector2(32, y), "%s   %d colonies, %d systems, pop %d, treasury %dk   strength %d   rep %d   [%s]%s" % [e["name"], e["colonies"], e["systems"], e["pop"], e["treasury"] / 1000.0, e["strength"], e["reputation"], e["personality"], war_note], HORIZONTAL_ALIGNMENT_LEFT, -1, 11)
+		var e_war : bool = e["at_war_with"].size() > 0
+		var mil := "fleet %d  army %d" % [e.get("fleet", 0.0), e.get("army", 0.0)]
+		if e.get("operations", 0) > 0:
+			mil += "  ops %d" % e["operations"]
+		var row_w : float = get_viewport_rect().size.x - (380.0 if not detail.is_empty() else 40.0) - 32.0
+		draw_string(font, Vector2(32, y), "%s   %d systems, %d colonies, pop %d, treasury %dk   %s   rep %d   [%s]" % [e["name"], e["systems"], e["colonies"], e["pop"], e["treasury"] / 1000.0, mil, e["reputation"], e["personality"]], HORIZONTAL_ALIGNMENT_LEFT, row_w, 11)
+		if e_war and detail.is_empty():
+			# Exhaustion bar: the empire sues for peace or capitulates as it fills.
+			var bx := 32.0 + font.get_string_size("%s   %d systems, %d colonies, pop %d, treasury %dk   %s   rep %d   [%s]" % [e["name"], e["systems"], e["colonies"], e["pop"], e["treasury"] / 1000.0, mil, e["reputation"], e["personality"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 10.0
+			draw_string(font, Vector2(bx, y), "AT WAR with %s" % ", ".join(e["at_war_with"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.45, 0.4))
+			var bx2 := bx + font.get_string_size("AT WAR with %s" % ", ".join(e["at_war_with"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 8.0
+			draw_rect(Rect2(bx2, y - 8, 60, 7), Color(1, 1, 1, 0.15))
+			draw_rect(Rect2(bx2, y - 8, 60 * clampf(e["exhaustion"] / 100.0, 0.0, 1.0), 7), Color(1.0, 0.55, 0.2))
 		y += 15.0
 	y += 6.0
 	for line in log_lines:
-		draw_string(font, Vector2(16, y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.85, 0.7))
+		draw_string(font, Vector2(16, y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, _event_color(line))
 		y += 13.0
+	if sim.is_paused():
+		var vs := get_viewport_rect().size
+		draw_string(font, Vector2(vs.x - 110, 26), "PAUSED", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1, 1, 1, 0.9))
 	_draw_detail(font)
 	draw_set_transform_matrix(Transform2D.IDENTITY)
 
@@ -257,7 +269,8 @@ func _draw_detail(font : Font) -> void:
 	var w : float = 330.0
 	var x : float = vw - w - 12.0
 	var bodies : Array = detail["bodies"]
-	var h : float = 54.0 + 46.0 * bodies.size()
+	var fl : PackedStringArray = detail.get("forces", PackedStringArray())
+	var h : float = 54.0 + 46.0 * bodies.size() + (8.0 + 13.0 * fl.size() if fl.size() > 0 else 0.0)
 	draw_rect(Rect2(x, 60, w, h), Color(0.08, 0.09, 0.12, 0.92))
 	draw_rect(Rect2(x, 60, w, h), Color(1, 1, 1, 0.25), false, 1.0)
 	var owner : int = detail["owner"]
@@ -284,6 +297,9 @@ func _draw_detail(font : Font) -> void:
 			var short : bool = (pr[3] + pr[2]) / 20.0 > 2.0
 			draw_string(font, Vector2(x + 18, y + 28), "prices " + " / ".join(parts), HORIZONTAL_ALIGNMENT_LEFT, w - 28, 10, Color(1.0, 0.45, 0.4) if short else Color(0.7, 0.85, 0.7))
 		y += 46.0
+	for f in fl:
+		draw_string(font, Vector2(x + 10, y), f, HORIZONTAL_ALIGNMENT_LEFT, w - 20, 10, Color(0.95, 0.85, 0.45))
+		y += 13.0
 
 func _draw_ships() -> void:
 	for sp in ships:
@@ -335,3 +351,17 @@ func _draw_forces(fo : PackedFloat32Array) -> void:
 			draw_polyline(tri, Color(0, 0, 0, 0.8), 1.0)
 		if show_labels and fo[i + 4] >= 20.0:
 			draw_string(font, p + Vector2(size + 2, 4), str(int(fo[i + 4])), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.8))
+
+## Event log colours: war red, peace green, crises orange, operations and battles amber, politics violet.
+func _event_color(line : String) -> Color:
+	if line.contains("WAR:") or line.contains("occupies") or line.contains("strikes"):
+		return Color(1.0, 0.45, 0.4)
+	if line.contains("PEACE") or line.contains("liberates") or line.contains("compromise"):
+		return Color(0.55, 0.95, 0.55)
+	if line.contains("CRISIS") or line.contains("crisis") or line.contains("backs down") or line.contains("concedes"):
+		return Color(1.0, 0.7, 0.3)
+	if line.contains("OPERATION") or line.contains("BATTLE") or line.contains("operation"):
+		return Color(0.95, 0.85, 0.45)
+	if line.contains("REGIME") or line.contains("pact") or line.contains("guarantee") or line.contains("shelves") or line.contains("stays out"):
+		return Color(0.8, 0.7, 1.0)
+	return Color(0.8, 0.8, 0.72)

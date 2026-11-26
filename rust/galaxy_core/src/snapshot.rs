@@ -42,6 +42,8 @@ pub struct SystemDetail {
     pub owner: i32,
     pub occupier: i32,
     pub bodies: Vec<BodyView>,
+    /// Forces present: "Empire 3 fleet 120 (operation)".
+    pub forces: Vec<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -57,6 +59,9 @@ pub struct EmpireView {
     pub reputation: f64,
     pub personality: String,
     pub at_war_with: Vec<String>,
+    pub fleet: f64,
+    pub army: f64,
+    pub operations: u32,
 }
 
 /// A fleet or army on the map.
@@ -128,6 +133,9 @@ impl World {
                 reputation: e.reputation,
                 personality: crate::personality::label(self, e.id),
                 at_war_with: self.enemies_of(e.id).into_iter().map(|x| self.empires[x].name.clone()).collect(),
+                fleet: self.forces.iter().filter(|f| f.owner == e.id && f.kind == crate::forces::ForceKind::Fleet).map(|f| f.strength).sum(),
+                army: self.forces.iter().filter(|f| f.owner == e.id && f.kind == crate::forces::ForceKind::Army).map(|f| f.strength).sum(),
+                operations: self.ops.iter().filter(|o| o.empire == e.id).count() as u32,
             });
         }
         // Every enemy pair, for drawing (coalition members included).
@@ -208,6 +216,12 @@ impl World {
             owner: s.owner.map_or(-1, |o| o as i32),
             occupier: s.occupier.map_or(-1, |o| o as i32),
             bodies,
+            forces: self
+                .forces
+                .iter()
+                .filter(|f| f.system == id && !f.moving())
+                .map(|f| format!("{} {} {:.0}{}", self.empires[f.owner].name, if f.kind == crate::forces::ForceKind::Fleet { "fleet" } else { "army" }, f.strength, if f.op.is_some() { " (operation)" } else { "" }))
+                .collect(),
         })
     }
 }

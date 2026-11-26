@@ -176,8 +176,11 @@ pub fn go_to_war(w: &mut World, a: usize, b: usize) {
         let y = w.year();
         let t = format!("{} shelves its plans against {} (forecast: {:.0}% to win)", w.empires[a].name, w.empires[b].name, o.p_win * 100.0);
         w.event(t);
+        // The worse the odds, the longer before it reconsiders.
+        let thr = w.war_threshold(a);
+        let hold = 2 + (6.0 * (thr - o.p_win)).round() as i64;
         let r = w.rel_mut(a, b);
-        r.truce_until = r.truce_until.max(y + 2);
+        r.truce_until = r.truce_until.max(y + hold);
         return;
     }
     let goals = choose_goals(w, a, b);

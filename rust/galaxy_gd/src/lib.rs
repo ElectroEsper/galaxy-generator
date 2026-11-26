@@ -247,6 +247,11 @@ impl GalaxySim {
             bodies.push(&bd);
         }
         put(&mut d, "bodies", bodies);
+        let mut fs = PackedStringArray::new();
+        for f in &det.forces {
+            fs.push(f.as_str());
+        }
+        put(&mut d, "forces", fs);
         d
     }
 
@@ -302,6 +307,9 @@ impl GalaxySim {
             put(&mut ed, "exhaustion", e.exhaustion);
             put(&mut ed, "reputation", e.reputation);
             put(&mut ed, "personality", GString::from(e.personality.as_str()));
+            put(&mut ed, "fleet", e.fleet);
+            put(&mut ed, "army", e.army);
+            put(&mut ed, "operations", e.operations as i64);
             let mut ww = PackedStringArray::new();
             for x in &e.at_war_with {
                 ww.push(&GString::from(x.as_str()));

@@ -360,3 +360,23 @@ Where it is used:
 - **Operations:** the commitment is the first rung of a ladder (×1.0 … ×3.0 of the believed enemy fleet) whose battle forecast clears 0.85 − 0.3 × risk tolerance.
 
 Rollouts use their own random streams, hashed from the seed, the month, the viewer and the question, and run in parallel (rayon). The sim's own random numbers are untouched, and results don't depend on the thread count. Cost: about 0.3 s per 100 years at 1,000 systems.
+
+### UI and balancing pass
+UI (rust_view):
+- Each empire row shows fleet, army and operations. Empires at war get a red "AT WAR with …" tag and an exhaustion bar (it sues for peace or capitulates as the bar fills). Rows shorten when the system panel is open, so they don't run under it.
+- The event log is colour-coded: war red, peace green, crises orange, operations and battles amber, politics violet.
+- A PAUSED label shows when the sim is paused.
+- The system panel lists the forces present ("Empire 2 fleet 104 (operation)").
+- Quick defensive reactions to a force passing through are no longer logged.
+
+Balance (10 seeds × 200 years, 46 systems, 6 empires):
+- **Starting point:** wars mean 7.1 (0–13); 2 galaxies with no war at all; top/bottom empire ratio 4.1.
+- **Viable gamble.** A land-hungry empire within 85% of its rival's (allied) strength may now consider war without a clear edge. It is a dearer plan than the clear-edge one and is gated by the forecast, which breaks some arms-race stalemates.
+- **Shelving hold.** A shelved war plan is held for 2 to 6 years, depending on how bad the odds were. This stops yearly "shelves its plans" spam.
+- **Stranded armies.** Enemy armies stranded in a system the defenders' fleet controls are now bombarded. Before, they sat there forever and kept a defence operation reopening every month.
+- **Result:** wars mean 7.4 (0–19), crises mean 7.2, no empire reduced to 1 system, top/bottom ratio 3.8.
+- **Still open:**
+  - 2 of 10 galaxies stay at peace for 200 years: friendly neighbours, no land hunger.
+  - A 1,000-system galaxy with 8 empires has no war in 200 years, because free land never runs out.
+
+  These look like legitimate outcomes, but if wars should come sooner on big maps, the land-hunger rule (no unclaimed system nearby) is the lever.
