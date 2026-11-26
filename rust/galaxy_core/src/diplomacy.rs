@@ -41,8 +41,10 @@ pub enum F {
     Opportunity,
     Guar,
     War,
+    /// There is a war involving this empire that we could join against it.
+    CanJoin,
 }
-const NF: usize = 16;
+const NF: usize = 17;
 const GLOBAL: usize = MAX_EMPIRES; // partner slot for global facts
 
 fn key(f: F, partner: usize) -> usize {
@@ -65,6 +67,7 @@ pub enum Act {
     SueForPeace,
     ProposePact,
     OfferGuarantee,
+    JoinWar,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +113,7 @@ fn facts(w: &World, e: usize) -> State {
         f[key(F::Opportunity, x)] = crate::treaties::opportunity(w, e, x);
         f[key(F::Guar, x)] = em.guarantees_(x);
         f[key(F::War, x)] = w.at_war(e, x);
+        f[key(F::CanJoin, x)] = !w.in_any_war(e) && w.wars.iter().any(|war| war.side_of(x).is_some());
     }
     f
 }
@@ -134,6 +138,7 @@ fn actions(w: &World, e: usize) -> Vec<Action> {
         add(Act::ProposePact, 2.0, vec![(k(F::Met), true), (k(F::OpOk), true), (k(F::Pact), false), (k(F::War), false)], vec![(k(F::Pact), true)]);
         add(Act::OfferGuarantee, 2.5, vec![(k(F::Met), true), (k(F::Guar), false), (k(F::War), false)], vec![(k(F::Guar), true)]);
         add(Act::SueForPeace, 1.0, vec![(k(F::War), true)], vec![(k(F::War), false)]);
+        add(Act::JoinWar, 2.0, vec![(k(F::CanJoin), true), (k(F::War), false), (g(F::Tired), false)], vec![(k(F::War), true)]);
     }
     acts
 }
@@ -273,7 +278,13 @@ fn goals(w: &World, e: usize) -> Vec<Goal> {
     for &x in &others {
         let r = w.rel(e, x);
         if w.at_war(e, x) {
-            if em.exhaustion >= peace_exhaustion(w, e) || em.strength < w.empires[x].strength * 0.8 {
+            // Judge the war by the coalitions, not by our own strength alone (a junior ally is always smaller).
+            let wi = w.war_index(w.war_between(e, x).unwrap()).unwrap();
+            let war = &w.wars[wi];
+            let side = war.side_of(e).unwrap();
+            let sum = |v: &Vec<usize>| v.iter().map(|&m| w.empires[m].strength).sum::<f64>();
+            let losing = sum(&war.sides[side]) < sum(&war.sides[1 - side]) * 0.8;
+            if em.exhaustion >= peace_exhaustion(w, e) || losing {
                 out.push(Goal { name: format!("end the war with {}", w.empires[x].name), priority: 5.0, want: vec![(key(F::War, x), false)] });
             }
             continue;
@@ -304,6 +315,23 @@ fn goals(w: &World, e: usize) -> Vec<Goal> {
         if rev.level >= crate::treaties::REV_ACT && !rev.claims.is_empty() && em.exhaustion < 20.0 && !w.in_any_war(e) {
             let names: Vec<String> = rev.claims.iter().map(|&s| w.systems[s].name.clone()).collect();
             out.push(Goal { name: format!("reclaim {} from {}", names.join(" "), w.empires[rev.victor].name), priority: 0.8 + rev.level / 50.0, want: vec![(key(F::War, rev.victor), true)] });
+        }
+    }
+    // Coalitions: join a war against an aggressor we fear while its victims are losing; or, if aggressive, join a
+    // winning attacker against a neighbour to share the spoils.
+    if !w.in_any_war(e) && em.exhaustion < 20.0 {
+        for war in &w.wars {
+            let (att, def) = (war.leader(0), war.leader(1));
+            if war.side_of(e).is_some() || w.rel(e, att).pact && w.rel(e, def).pact {
+                continue;
+            }
+            let attackers_ahead = crate::treaties::score(w, war.id, 0);
+            if (em.main_threat == Some(att) || em.threat[att] >= 1.5) && attackers_ahead > 0.0 && w.rel(e, att).met {
+                out.push(Goal { name: format!("join the coalition against {}", w.empires[att].name), priority: (0.7 + 0.3 * em.threat[att].min(3.0)) * em.w(TRAIT_INTERVENTION), want: vec![(key(F::War, att), true)] });
+            }
+            if attackers_ahead > 20.0 && em.t(TRAIT_AGGRESSION) >= 0.6 && w.rel(e, def).border > 0 && !w.rel(e, def).pact && !em.guarantees_(def) && year >= w.rel(e, def).truce_until {
+                out.push(Goal { name: format!("share the spoils of {}'s war on {}", w.empires[att].name, w.empires[def].name), priority: 0.6 * em.w(TRAIT_AGGRESSION) * em.w(TRAIT_EXPANSION), want: vec![(key(F::War, def), true)] });
+            }
         }
     }
     // Alliances against the main threat.
@@ -378,6 +406,11 @@ impl World {
                 continue;
             }
             let a = sub[p[0]].clone();
+            // Only a goal about ending the war may end it: otherwise every trade or pact goal with an enemy would
+            // start by suing for peace (and junior members would walk out of every war within a year).
+            if a.act == Act::SueForPeace && !goal.want.iter().any(|&(k, v)| k == key(F::War, a.x) && !v) {
+                continue;
+            }
             let cool = if a.act == Act::SueForPeace { PEACE_COOLDOWN } else { REFUSAL_COOLDOWN };
             let gated = matches!(a.act, Act::ProposeTrade | Act::ProposePassage | Act::SueForPeace | Act::ProposePact | Act::OfferGuarantee);
             if gated && self.empires[e].refusals.get(&a.x).map_or(false, |&y| y + cool > year) {
@@ -416,10 +449,28 @@ impl World {
             }
             Act::DeclareWar => crate::treaties::go_to_war(self, e, x),
             Act::SueForPeace => {
-                if let Some(id) = self.wars.iter().find(|w| (w.a == e && w.b == x) || (w.a == x && w.b == e)).map(|w| w.id) {
-                    if !crate::treaties::negotiate(self, id, e) {
-                        self.empires[e].refusals.insert(x, year);
+                if let Some(id) = self.war_between(e, x) {
+                    let wi = self.war_index(id).unwrap();
+                    let side = self.wars[wi].side_of(e).unwrap();
+                    if self.wars[wi].leader(side) == e {
+                        if !crate::treaties::negotiate(self, id, e) {
+                            self.empires[e].refusals.insert(x, year);
+                        }
+                    } else {
+                        self.separate_peace(id, e, false); // a minor member just leaves
                     }
+                }
+            }
+            Act::JoinWar => {
+                // The war x is in; we join the other side.
+                if let Some(wi) = self.wars.iter().position(|w| w.side_of(x).is_some() && w.side_of(e).is_none()) {
+                    let id = self.wars[wi].id;
+                    let side = 1 - self.wars[wi].side_of(x).unwrap();
+                    let (rep, why) = if side == 1 { (2.0, "a coalition against the aggressor") } else { (crate::alliances::REP_WAR_OF_CHOICE, "to share the spoils") };
+                    let reason = format!("{} (goal: {})", why, goal.name);
+                    self.join_war(id, e, side, &reason);
+                    let rwhy = format!("joined the war against {}", xn);
+                    crate::alliances::adjust_reputation(self, e, rep, &rwhy);
                 }
             }
             Act::ProposePact => {

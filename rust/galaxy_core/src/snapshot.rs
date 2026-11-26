@@ -114,10 +114,17 @@ impl World {
                 exhaustion: e.exhaustion,
                 reputation: e.reputation,
                 personality: crate::personality::label(self, e.id),
-                at_war_with: self.wars.iter().filter_map(|w| if w.a == e.id { Some(w.b) } else if w.b == e.id { Some(w.a) } else { None }).map(|x| self.empires[x].name.clone()).collect(),
+                at_war_with: self.enemies_of(e.id).into_iter().map(|x| self.empires[x].name.clone()).collect(),
             });
         }
-        s.wars = self.wars.iter().map(|w| (w.a as u32, w.b as u32)).collect();
+        // Every enemy pair, for drawing (coalition members included).
+        for w in &self.wars {
+            for &a in &w.sides[0] {
+                for &b in &w.sides[1] {
+                    s.wars.push((a as u32, b as u32));
+                }
+            }
+        }
         let n = self.empires.len();
         for a in 0..n {
             for b in (a + 1)..n {

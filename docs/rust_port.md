@@ -245,6 +245,14 @@ Each feature in the prototype, with what the port must carry. New rows are added
 
 ## 11. Changelog
 
+- 2026-11-26: multi-party wars. `War` has two sides (`sides: [Vec<EmpireId>; 2]`, leader first) instead of child wars:
+  combat sums each side's committed strength (members without a front send half), losses are shared in proportion,
+  any member may occupy any enemy member's front system. Allies answering calls to arms, coalition members (an
+  aggressor they fear is winning) and opportunists (a winning attacker next door) join a side (`join_war`). Leaders
+  negotiate peace for the whole war; each occupied system goes to its occupier; grudges are per (loser, gainer).
+  Minor members can leave by separate peace; a collapsing leader capitulates for its side. Only goals about ending a
+  war may plan `sue_for_peace`.
+
 - 2026-11-26: guaranteed homeworlds (`World::capital_star`, `capital_spots`): in colonization runs each empire's
   capital star is generated first (a temperate rocky world with Ore >= 3 and Water or Food >= 3, star past the
   protoplanet age), placed on a ring (uniform galaxy) or spread across the density map (image galaxy). They count
@@ -282,3 +290,14 @@ Each feature in the prototype, with what the port must carry. New rows are added
 - 2026-11-25: added image-driven galaxy placement (section 4a) and the astro modules to the module map.
 - 2026-11-25: document created. Covers the prototype up to war, personalities, army target strength and threat
   assessment.
+
+### Diplomatic plays (`plays.rs`)
+A demand with a 12-month deadline. Third parties back a side: pact partners, guarantors, and empires that fear the demander. At month 6 the crisis escalates: both sides arm, more backers are asked, and a neutral interventionist may mediate a compromise (the cheapest demand only). The target concedes when outmatched past its "spine". The demander may back down only after escalation, at a threshold scaled by its aggression; backing down costs reputation and brings a 10-year truce. At the deadline the crisis becomes war, with the backers joining. `go_to_war` picks a route by personality: a first strike for aggressive and reckless empires, a play for cautious or mercantile ones, an ultimatum otherwise.
+
+### Roadmap: data-driven personalities
+Goal: add or change a trait or an archetype without touching sim code.
+- Traits are defined in a data file (`personalities.ron`/`.toml`). Each trait has a name, a default range, a drift rate, a reversion rate, and a regime-change weight. The `TRAIT_*` constants (about 60 uses) become lookups by trait id, resolved once at load time.
+- Archetypes (e.g. "Warlike Expansionists", "Merchant Republic") are named presets. Each gives a trait mean and spread, plus the label used in the UI.
+- Trait effects are expressed as weights in one table rather than scattered literals. One example: the "spine" formula, which today is 0.6×(1−caution) + 0.4×aggression. The table maps decision → trait → weight.
+- Event drifts move here too: concede → caution −0.1, aggression +0.05, and so on, as a table of event → trait shifts.
+- The CLI and GalaxySim accept `personalities=path`. Like `galaxy_goods`, this could live in its own crate (`galaxy_personality`).

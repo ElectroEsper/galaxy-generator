@@ -106,12 +106,10 @@ pub fn call_to_arms(w: &mut World, attacker: usize, defender: usize, war_id: usi
         }
         let what = if pact { "pact" } else { "guarantee" };
         if w.rng.randf() < chance {
-            let t = format!("{} honours its {} and joins {} against {}", w.empires[y].name, what, w.empires[defender].name, w.empires[attacker].name);
-            w.event(t);
             adjust_trust(w, defender, y, TRUST_HONOURED);
             let why = format!("stood by {}", w.empires[defender].name);
             adjust_reputation(w, y, REP_HONOURED, &why);
-            w.declare(y, attacker, Some(war_id), vec![]);
+            w.join_war(war_id, y, 1, &format!("honouring its {}", what));
         } else {
             {
                 let r = w.rel_mut(y, defender);
