@@ -1,6 +1,7 @@
 //! A plain-data picture of the world after a month, for front ends (the Godot extension reads this from its sim
 //! thread; nothing here borrows the world).
 
+use crate::goods;
 use crate::world::World;
 
 #[derive(Clone, Debug, Default)]
@@ -14,6 +15,33 @@ pub struct SysView {
     pub bodies: u32,
     pub pop: f64,
     pub known: bool,
+    /// Worst food/parts shortage among its colonies, 0..1 (prices 1x..4x base).
+    pub shortage: f64,
+}
+
+/// One body of a system, for the info panel.
+#[derive(Clone, Debug, Default)]
+pub struct BodyView {
+    pub name: String,
+    pub class: String,
+    pub owner: i32,
+    pub settled: bool,
+    pub pop: f64,
+    pub max_pop: f64,
+    /// Deposits the owner (or, unsettled, the system owner) knows: (good name, richness)
+    pub deposits: Vec<(String, f64)>,
+    pub prices: [f64; 5],
+    pub facilities: i32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SystemDetail {
+    pub id: usize,
+    pub name: String,
+    pub star: String,
+    pub owner: i32,
+    pub occupier: i32,
+    pub bodies: Vec<BodyView>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -67,6 +95,10 @@ impl World {
                 bodies: sy.bodies.len() as u32,
                 pop: sys_settled[i].1,
                 known: sy.known,
+                shortage: sy.bodies.iter().filter(|&&c| self.colonies[c].settled).map(|&c| {
+                    let col = &self.colonies[c];
+                    (((col.price[goods::FOOD] + col.price[goods::PARTS]) / (2.0 * crate::market::BASE_PRICE) - 1.0) / 3.0).clamp(0.0, 1.0)
+                }).fold(0.0, f64::max),
             });
         }
         for e in &self.empires {
@@ -105,6 +137,44 @@ impl World {
         s.colonies = self.markets.len() as u32;
         s.corps = self.corps.iter().filter(|k| !k.dead).count() as u32;
         s
+    }
+}
+
+impl World {
+    pub fn system_detail(&self, id: usize) -> Option<SystemDetail> {
+        let s = self.systems.get(id)?;
+        let viewer = s.owner;
+        let bodies = s
+            .bodies
+            .iter()
+            .map(|&c| {
+                let col = &self.colonies[c];
+                let rich = match (col.settled, viewer) {
+                    (true, _) => col.rich().clone(),
+                    (false, Some(e)) => col.known_rich(e),
+                    _ => Default::default(),
+                };
+                BodyView {
+                    name: col.name.clone(),
+                    class: col.label.clone(),
+                    owner: col.owner.map_or(-1, |o| o as i32),
+                    settled: col.settled,
+                    pop: col.pop,
+                    max_pop: col.max_pop,
+                    deposits: rich.0.iter().map(|&(g, v)| (goods::NAMES[g].to_string(), v)).collect(),
+                    prices: col.price,
+                    facilities: col.facility_count,
+                }
+            })
+            .collect();
+        Some(SystemDetail {
+            id,
+            name: s.name.clone(),
+            star: crate::astro::CLASS_NAMES[s.class].to_string(),
+            owner: s.owner.map_or(-1, |o| o as i32),
+            occupier: s.occupier.map_or(-1, |o| o as i32),
+            bodies,
+        })
     }
 }
 

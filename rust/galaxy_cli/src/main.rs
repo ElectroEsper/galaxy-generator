@@ -23,7 +23,7 @@ fn main() {
             "ticks" => ticks = v.parse().unwrap_or(600),
             // maps=<dir> with spiral_density.png and spiral_population.png (maps=default: the repo's galaxy_maps/)
             "maps" => {
-                let dir = if v == "default" { "../galaxy_maps" } else { v };
+                let dir = if v == "default" { if std::path::Path::new("galaxy_maps").exists() { "galaxy_maps" } else { "../galaxy_maps" } } else { v };
                 cfg.maps = Some(std::sync::Arc::new(load_maps(&format!("{}/spiral_density.png", dir), &format!("{}/spiral_population.png", dir))));
             }
             _ => eprintln!("unknown argument {}", a),

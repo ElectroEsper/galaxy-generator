@@ -19,6 +19,10 @@ func _initialize() -> void:
 
 func _process(_d : float) -> bool:
 	frames += 1
+	if frames == limit - 30:
+		var v = root.get_child(root.get_child_count() - 1)
+		v.selected = 0
+		v.sim.request_detail(0)
 	if frames == limit:
 		root.get_viewport().get_texture().get_image().save_png(out)
 		print("SAVED ", out)

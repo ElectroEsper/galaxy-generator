@@ -21,6 +21,9 @@ struct Shared {
     /// Months per second, as f64 bits.
     speed: AtomicU64,
     latest: Mutex<Option<Snapshot>>,
+    /// System the view asked about (-1: none), and the answer.
+    detail_req: std::sync::atomic::AtomicI64,
+    detail: Mutex<Option<galaxy_core::snapshot::SystemDetail>>,
     events: Mutex<Vec<String>>,
 }
 
@@ -41,6 +44,8 @@ impl INode for GalaxySim {
                 stop: AtomicBool::new(false),
                 speed: AtomicU64::new(6.0f64.to_bits()),
                 latest: Mutex::new(None),
+                detail_req: std::sync::atomic::AtomicI64::new(-1),
+                detail: Mutex::new(None),
                 events: Mutex::new(vec![]),
             }),
             thread: None,
@@ -112,6 +117,10 @@ impl GalaxySim {
             let mut budget = 0.0f64;
             let mut last = Instant::now();
             while !shared.stop.load(Ordering::SeqCst) {
+                let req = shared.detail_req.swap(-1, Ordering::SeqCst);
+                if req >= 0 {
+                    *shared.detail.lock().unwrap() = w.system_detail(req as usize);
+                }
                 let now = Instant::now();
                 let dt = (now - last).as_secs_f64();
                 last = now;
@@ -149,6 +158,51 @@ impl GalaxySim {
         }
     }
 
+    /// Ask for the bodies of one system; the answer arrives as "detail" in a later poll() (also while paused).
+    #[func]
+    fn request_detail(&mut self, system: i64) {
+        self.shared.detail_req.store(system, Ordering::SeqCst);
+    }
+
+    /// The latest system detail, or an empty Dictionary.
+    #[func]
+    fn take_detail(&mut self) -> Dictionary<Variant, Variant> {
+        let det = match self.shared.detail.lock().unwrap().take() {
+            Some(d) => d,
+            None => return Dictionary::new(),
+        };
+        let mut d: Dictionary<Variant, Variant> = Dictionary::new();
+        put(&mut d, "id", det.id as i64);
+        put(&mut d, "name", GString::from(det.name.as_str()));
+        put(&mut d, "star", GString::from(det.star.as_str()));
+        put(&mut d, "owner", det.owner as i64);
+        put(&mut d, "occupier", det.occupier as i64);
+        let mut bodies: Array<Dictionary<Variant, Variant>> = Array::new();
+        for b in &det.bodies {
+            let mut bd: Dictionary<Variant, Variant> = Dictionary::new();
+            put(&mut bd, "name", GString::from(b.name.as_str()));
+            put(&mut bd, "class", GString::from(b.class.as_str()));
+            put(&mut bd, "owner", b.owner as i64);
+            put(&mut bd, "settled", b.settled);
+            put(&mut bd, "pop", b.pop);
+            put(&mut bd, "max_pop", b.max_pop);
+            put(&mut bd, "facilities", b.facilities as i64);
+            let mut dep = PackedStringArray::new();
+            for (g, v) in &b.deposits {
+                dep.push(&GString::from(format!("{} {:.1}", g, v).as_str()));
+            }
+            put(&mut bd, "deposits", dep);
+            let mut pr = PackedFloat32Array::new();
+            for p in b.prices {
+                pr.push(p as f32);
+            }
+            put(&mut bd, "prices", pr);
+            bodies.push(&bd);
+        }
+        put(&mut d, "bodies", bodies);
+        d
+    }
+
     #[func]
     fn set_paused(&mut self, paused: bool) {
         self.shared.paused.store(paused, Ordering::SeqCst);
@@ -177,11 +231,11 @@ impl GalaxySim {
         put(&mut d, "date", GString::from(snap.date.as_str()));
         put(&mut d, "colonies", snap.colonies as i64);
         put(&mut d, "corps", snap.corps as i64);
-        // Systems: 9 floats each: x, y, owner, occupier, at_front, settled bodies, bodies, pop, known
+        // Systems: 10 floats each: x, y, owner, occupier, at_front, settled bodies, bodies, pop, known, shortage
         let mut sys = PackedFloat32Array::new();
         let mut names = PackedStringArray::new();
         for s in &snap.systems {
-            for v in [s.pos.0, s.pos.1, s.owner as f64, s.occupier as f64, s.at_front as i32 as f64, s.settled as f64, s.bodies as f64, s.pop, s.known as i32 as f64] {
+            for v in [s.pos.0, s.pos.1, s.owner as f64, s.occupier as f64, s.at_front as i32 as f64, s.settled as f64, s.bodies as f64, s.pop, s.known as i32 as f64, s.shortage] {
                 sys.push(v as f32);
             }
             names.push(&GString::from(s.name.as_str()));

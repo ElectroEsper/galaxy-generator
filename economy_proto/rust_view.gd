@@ -2,7 +2,8 @@ extends Node2D
 ## Map view driven by the Rust simulation (rust/galaxy_gd, class GalaxySim). The sim runs on its own thread; each frame
 ## this view polls for the newest month and redraws from that snapshot only, so drawing never waits on the sim.
 ## Build the library first:  cd rust && cargo build --release -p galaxy_gd
-## Controls: [space] pause, [up/down] speed, [T] ships, [L] labels, [+/-] zoom, drag with the right mouse button.
+## Controls: [space] pause, [up/down] speed, [T] ships, [L] labels, [+/-] zoom, drag with the right mouse button,
+## left-click a system for its bodies, deposits and prices ([Esc] closes the panel).
 
 @export var systems : int = 46
 @export var empires : int = 4
@@ -19,7 +20,8 @@ const GOOD_COLORS : Array = [Color(0.72, 0.45, 0.25), Color(0.7, 0.78, 0.9), Col
 const TERRITORY_RADIUS := 70.0
 const SHIP_SPEED := 160.0
 const MAX_SHIPS := 300
-const SYS_STRIDE := 9      # x, y, owner, occupier, at_front, settled bodies, bodies, pop, known
+const SYS_STRIDE := 10     # x, y, owner, occupier, at_front, settled bodies, bodies, pop, known, shortage
+const GOOD_NAMES : Array = ["Ore", "Metal", "Parts", "Food", "Water"]
 const SHIP_STRIDE := 6     # from x, from y, to x, to y, good, qty
 
 var sim
@@ -35,6 +37,8 @@ var tps : float = 0.0
 var _tps_n : int = 0
 var _tps_t : float = 0.0
 var _last_tick : int = -1
+var selected : int = -1          # system shown in the info panel
+var detail : Dictionary = {}
 
 func _ready() -> void:
 	if not ClassDB.class_exists("GalaxySim"):
@@ -72,6 +76,12 @@ func _process(delta : float) -> void:
 				var a := Vector2(sh[i], sh[i + 1]); var b := Vector2(sh[i + 2], sh[i + 3])
 				if a.distance_to(b) > 1.0:
 					ships.append([a, b, int(sh[i + 4]), 0.0, a.distance_to(b)])
+		if selected >= 0:
+			sim.request_detail(selected)      # keep the panel live
+		queue_redraw()
+	var det : Dictionary = sim.take_detail()
+	if not det.is_empty() and det["id"] == selected:
+		detail = det
 		queue_redraw()
 	_tps_t += delta
 	if _tps_t >= 1.0:
@@ -94,10 +104,26 @@ func _unhandled_input(e : InputEvent) -> void:
 				show_ships = not show_ships
 				if not show_ships: ships.clear()
 			KEY_L: show_labels = not show_labels
+			KEY_ESCAPE:
+				selected = -1; detail = {}; queue_redraw()
 			KEY_EQUAL, KEY_KP_ADD: scale *= 1.25
 			KEY_MINUS, KEY_KP_SUBTRACT: scale /= 1.25
 	elif e is InputEventMouseMotion and e.button_mask & MOUSE_BUTTON_MASK_RIGHT:
 		position += e.relative
+	elif e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT and not snap.is_empty():
+		var p : Vector2 = get_global_transform().affine_inverse() * e.position
+		var sys : PackedFloat32Array = snap["systems"]
+		var best : int = -1
+		var bd : float = 16.0 / scale.x
+		for i in range(0, sys.size(), SYS_STRIDE):
+			var d : float = p.distance_to(Vector2(sys[i], sys[i + 1]))
+			if d < bd:
+				bd = d; best = i / SYS_STRIDE
+		selected = best
+		detail = {}
+		if best >= 0:
+			sim.request_detail(best)
+		queue_redraw()
 
 func _empire_color(i : int) -> Color:
 	return EMPIRE_COLORS[i % EMPIRE_COLORS.size()] if i >= 0 else Color(0.55, 0.55, 0.6)
@@ -164,6 +190,10 @@ func _draw() -> void:
 			continue
 		var r : float = 4.0 + sqrt(pop) * 0.35 if settled > 0 else 3.0
 		draw_circle(p, r, _empire_color(owner) if owner >= 0 else Color(0.55, 0.55, 0.6))
+		if sys[i + 9] > 0.05:
+			draw_arc(p, r + 1.5, 0.0, TAU, 24, Color(1.0, 0.25, 0.2, 0.35 + 0.6 * sys[i + 9]), 2.0)   # short of food/parts
+		if i / SYS_STRIDE == selected:
+			draw_arc(p, r + 7.0, 0.0, TAU, 32, Color.WHITE, 1.5)
 		if occ >= 0:
 			draw_arc(p, r + 4.0, 0.0, TAU, 32, _empire_color(occ), 3.5)
 			for k in range(-2, 3):
@@ -191,7 +221,44 @@ func _draw() -> void:
 	for line in log_lines:
 		draw_string(font, Vector2(16, y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.85, 0.7))
 		y += 13.0
+	_draw_detail(font)
 	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+## Info panel for the selected system (screen space, right side).
+func _draw_detail(font : Font) -> void:
+	if detail.is_empty():
+		return
+	var vw : float = get_viewport_rect().size.x
+	var w : float = 330.0
+	var x : float = vw - w - 12.0
+	var bodies : Array = detail["bodies"]
+	var h : float = 54.0 + 46.0 * bodies.size()
+	draw_rect(Rect2(x, 60, w, h), Color(0.08, 0.09, 0.12, 0.92))
+	draw_rect(Rect2(x, 60, w, h), Color(1, 1, 1, 0.25), false, 1.0)
+	var owner : int = detail["owner"]
+	var owner_name : String = snap["empires"][owner]["name"] if owner >= 0 and owner < snap["empires"].size() else "unclaimed"
+	var occ : int = detail["occupier"]
+	var title : String = "%s  (%s star)  %s%s" % [detail["name"], detail["star"], owner_name, ("  occupied by " + snap["empires"][occ]["name"]) if occ >= 0 else ""]
+	draw_string(font, Vector2(x + 10, 80), title, HORIZONTAL_ALIGNMENT_LEFT, w - 20, 13, _empire_color(owner) if owner >= 0 else Color.WHITE)
+	draw_string(font, Vector2(x + 10, 96), "prices: Ore / Metal / Parts / Food / Water   [Esc] close", HORIZONTAL_ALIGNMENT_LEFT, w - 20, 10, Color(0.6, 0.6, 0.6))
+	var y : float = 116.0
+	for b in bodies:
+		var head : String = "%s  %s" % [b["name"], b["class"]]
+		if b["settled"]:
+			head += "   pop %d / %d   %d facilities" % [b["pop"], b["max_pop"], b["facilities"]]
+		else:
+			head += "   unsettled"
+		draw_string(font, Vector2(x + 10, y), head, HORIZONTAL_ALIGNMENT_LEFT, w - 20, 11, Color.WHITE if b["settled"] else Color(0.7, 0.7, 0.7))
+		var dep : String = ", ".join(b["deposits"]) if b["deposits"].size() > 0 else "no known deposits"
+		draw_string(font, Vector2(x + 18, y + 14), dep, HORIZONTAL_ALIGNMENT_LEFT, w - 28, 10, Color(0.85, 0.8, 0.55))
+		if b["settled"]:
+			var pr : PackedFloat32Array = b["prices"]
+			var parts : PackedStringArray = []
+			for g in pr.size():
+				parts.append("%.0f" % pr[g])
+			var short : bool = (pr[3] + pr[2]) / 20.0 > 2.0
+			draw_string(font, Vector2(x + 18, y + 28), "prices " + " / ".join(parts), HORIZONTAL_ALIGNMENT_LEFT, w - 28, 10, Color(1.0, 0.45, 0.4) if short else Color(0.7, 0.85, 0.7))
+		y += 46.0
 
 func _draw_ships() -> void:
 	for sp in ships:

@@ -422,27 +422,41 @@ impl World {
         let best_v = value.iter().cloned().fold(-1.0, f64::max);
         let mut capitals: Vec<usize> = vec![];
         for i in 0..n {
+            // Strict first (a good homeworld in a system of its own), then relaxed, so small or harsh galaxies still
+            // get every capital instead of failing.
             let mut pick = None;
-            let mut pv = -1.0;
-            for c in 0..self.colonies.len() {
-                if capitals.contains(&c) || capitals.iter().any(|&x| self.colonies[x].system == self.colonies[c].system && self.colonies[c].system.is_some()) {
-                    continue;
-                }
-                let mut v = value[c];
-                if i > 0 {
-                    if v < best_v * 0.5 {
+            for strict in [true, false] {
+                let mut pv = -1.0;
+                for c in 0..self.colonies.len() {
+                    if capitals.contains(&c) {
                         continue;
                     }
-                    let dmin = capitals.iter().map(|&x| dist(self.colonies[x].pos, self.colonies[c].pos)).fold(f64::INFINITY, f64::min);
-                    v = dmin + v * 0.001;
+                    if strict && capitals.iter().any(|&x| self.colonies[x].system == self.colonies[c].system && self.colonies[c].system.is_some()) {
+                        continue;
+                    }
+                    let mut v = value[c];
+                    if i > 0 {
+                        if strict && v < best_v * 0.5 {
+                            continue;
+                        }
+                        let dmin = capitals.iter().map(|&x| dist(self.colonies[x].pos, self.colonies[c].pos)).fold(f64::INFINITY, f64::min);
+                        v = dmin + v * 0.001;
+                    }
+                    if v > pv {
+                        pv = v;
+                        pick = Some(c);
+                    }
                 }
-                if v > pv {
-                    pv = v;
-                    pick = Some(c);
+                if pick.is_some() {
+                    break;
                 }
             }
-            capitals.push(pick.expect("no capital site"));
+            match pick {
+                Some(p) => capitals.push(p),
+                None => break, // fewer bodies than empires: run with as many empires as fit
+            }
         }
+        let n = capitals.len();
         let nsys = self.systems.len();
         for (i, &cap) in capitals.iter().enumerate() {
             self.empires.push(Empire {
