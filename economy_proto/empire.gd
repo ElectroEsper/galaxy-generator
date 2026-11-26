@@ -21,9 +21,22 @@ var customs_collected : float = 0.0
 # Military (see military.gd)
 var strength : float = 0.0
 var exhaustion : float = 0.0
-var month_tax : float = 0.0          # taxes collected this month (the military budget is a share of it)
+var month_tax : float = 0.0
+var avg_tax : float = 0.0             # smoothed monthly tax income (sets the army target)
+var target_strength : float = 0.0
+# Threat (see threat.gd): other empire id -> score; track record others judge us by
+var threat : Dictionary = {}
+var max_threat : float = 0.0
+var main_threat : int = -1
+var wars_started : Array = []         # years
+var systems_taken : int = 0
+var sys_history : Array = []          # systems owned, one entry per year          # taxes collected this month (the military budget is a share of it)
 var mil_spent : float = 0.0
 var arming_until : int = 0            # year until which the planner wants extra armament
+var traits : Dictionary = {}          # personality (see personality.gd); empty = all 0.5
+var stability : float = 0.5
+var base_traits : Dictionary = {}     # the current regime's values; traits drift back toward them
+var regime_year : int = -100
 var refusals : Dictionary = {}       # other empire id -> year it last refused a proposal (diplomacy cooldown)
 # Known space: systems this empire has charted (SystemNode -> true)
 var known : Dictionary = {}

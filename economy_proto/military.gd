@@ -5,11 +5,14 @@ extends RefCounted
 ## Wars are fought monthly along fronts (systems near the enemy's): Lanchester-style attrition, occupation of enemy front
 ## systems by the side with the upper hand, war exhaustion, and peace terms that cede occupied systems.
 
-# Spending: share of the empire's monthly tax income put into the military
+# Army size: an empire keeps the army whose upkeep is this share of its (smoothed) monthly tax income, x militarism
 const SHARE_UNMET := 0.0             # no contact with anyone: no military (a lone empire behaves exactly as before)
-const SHARE_PEACE := 0.05
-const SHARE_ARMING := 0.20           # while the planner has decided to arm (ARMING_YEARS)
-const SHARE_WAR := 0.35
+const SHARE_PEACE := 0.10            # x (1 + threat, capped)
+const SHARE_ARMING := 0.25           # while the planner has decided to arm (ARMING_YEARS)
+const SHARE_WAR := 0.40
+const THREAT_CAP := 2.0
+const BUILD_RATE := 0.05             # of the target, per month
+const DEMOBILIZE := 0.02             # of the excess, per month
 const ARMING_YEARS := 5
 # Cost of one point of strength, and its upkeep
 const UNIT_CASH := 20.0
@@ -43,47 +46,89 @@ static func monthly(sim) -> void:
 		if not sim.wars.any(func(w): return w["a"] == e or w["b"] == e):
 			e.exhaustion = maxf(0.0, e.exhaustion - EXH_RECOVER)
 
+## Share of smoothed monthly income the empire is willing to spend on upkeep: sets its target army size.
 static func _share(sim, e) -> float:
+	var m : float = 0.3 + 1.4 * Personality.t(e, "militarism")
 	if sim.wars.any(func(w): return w["a"] == e or w["b"] == e):
-		return SHARE_WAR
+		return SHARE_WAR * m
 	if sim.tick_count / 12 < e.arming_until:
-		return SHARE_ARMING
+		return SHARE_ARMING * m
 	var met : bool = sim.empires.any(func(x): return x != e and sim._rel(e, x)["met"])
-	return SHARE_PEACE if met else SHARE_UNMET
+	return SHARE_PEACE * m * (1.0 + minf(e.max_threat, THREAT_CAP)) if met else SHARE_UNMET
 
-## Pay upkeep, then buy new strength with this month's military budget (goods from the capital's shelves, at its prices).
+## Target strength: what the empire's chosen share of income can keep up.
+static func target_strength(sim, e) -> float:
+	var cap : ColonyMarket = e.capital
+	var upkeep_unit : float = UPKEEP_CASH + UPKEEP_PARTS * cap.price[Goods.PARTS]
+	return _share(sim, e) * e.avg_tax / upkeep_unit
+
+## Monthly: pay upkeep, then build toward the target (paid from the treasury, goods from the capital) or stand down.
 static func _fund(sim, e) -> void:
 	var cap : ColonyMarket = e.capital
+	e.avg_tax = 0.95 * e.avg_tax + 0.05 * e.month_tax
+	e.month_tax = 0.0
 	# Upkeep
 	if e.strength > 0.0:
-		var cash_need : float = e.strength * UPKEEP_CASH
 		var parts_need : float = e.strength * UPKEEP_PARTS
-		cap.note_use(Goods.PARTS, parts_need)
-		var parts_got : float = minf(cap.stock[Goods.PARTS], parts_need)
-		cap.stock[Goods.PARTS] -= parts_got
-		var cost : float = cash_need + parts_got * cap.price[Goods.PARTS]
+		_note(sim, e, Goods.PARTS, parts_need)
+		var bought : Array = _buy(sim, e, Goods.PARTS, parts_need)
+		var cost : float = e.strength * UPKEEP_CASH + bought[1]
 		e.treasury -= cost
 		e.mil_spent += cost
-		if parts_got < parts_need * 0.99 or e.treasury < 0.0:
+		if bought[0] < parts_need * 0.99 or e.treasury < 0.0:
 			e.strength *= 1.0 - UNPAID_DECAY
-	# New strength
-	var budget : float = _share(sim, e) * e.month_tax
-	e.month_tax = 0.0
-	if budget <= 0.0 or e.treasury <= 0.0:
+	var target : float = target_strength(sim, e)
+	e.target_strength = target
+	if e.strength > target * 1.1:
+		e.strength -= (e.strength - target) * DEMOBILIZE    # stand down slowly
 		return
-	budget = minf(budget, e.treasury)
-	var unit : float = UNIT_CASH + UNIT_METAL * cap.price[Goods.METAL] + UNIT_PARTS * cap.price[Goods.PARTS]
-	var n : float = budget / unit
-	cap.note_use(Goods.METAL, n * UNIT_METAL)
-	cap.note_use(Goods.PARTS, n * UNIT_PARTS)
-	n = minf(n, minf(cap.stock[Goods.METAL] / UNIT_METAL, cap.stock[Goods.PARTS] / UNIT_PARTS))
+	if e.strength >= target or e.treasury <= 0.0:
+		return
+	# Build: at most BUILD_RATE of the target per month, and no more than a tenth of the treasury
+	var unit_est : float = UNIT_CASH + UNIT_METAL * cap.price[Goods.METAL] + UNIT_PARTS * cap.price[Goods.PARTS]
+	var n : float = minf(target - e.strength, maxf(target * BUILD_RATE, 1.0))
+	n = minf(n, e.treasury * 0.1 / unit_est)
+	var avail_m : float = _available(sim, e, Goods.METAL); var avail_p : float = _available(sim, e, Goods.PARTS)
+	_note(sim, e, Goods.METAL, n * UNIT_METAL); _note(sim, e, Goods.PARTS, n * UNIT_PARTS)
+	n = minf(n, minf(avail_m / UNIT_METAL, avail_p / UNIT_PARTS))
 	if n <= 0.0:
 		return
-	cap.stock[Goods.METAL] -= n * UNIT_METAL
-	cap.stock[Goods.PARTS] -= n * UNIT_PARTS
-	e.treasury -= n * unit
-	e.mil_spent += n * unit
+	var cost : float = n * UNIT_CASH + _buy(sim, e, Goods.METAL, n * UNIT_METAL)[1] + _buy(sim, e, Goods.PARTS, n * UNIT_PARTS)[1]
+	e.treasury -= cost
+	e.mil_spent += cost
 	e.strength += n
+
+## The empire's own colonies, cheapest first for good g (ties by name, for determinism).
+static func _sources(sim, e, g : int) -> Array:
+	var own : Array = sim._empire_colonies(e).duplicate()
+	own.sort_custom(func(a, b): return a.price[g] < b.price[g] or (a.price[g] == b.price[g] and a.name < b.name))
+	return own
+
+static func _available(sim, e, g : int) -> float:
+	var t : float = 0.0
+	for c in sim._empire_colonies(e): t += c.stock[g]
+	return t
+
+## Register military demand across the empire (spread by population), so prices and producers respond.
+static func _note(sim, e, g : int, qty : float) -> void:
+	var own : Array = sim._empire_colonies(e)
+	var pop : float = 0.0
+	for c in own: pop += c.pop
+	if pop <= 0.0: return
+	for c in own: c.note_use(g, qty * c.pop / pop)
+
+## Buy up to qty of g from the empire's colonies, cheapest first. Returns [bought, cost].
+static func _buy(sim, e, g : int, qty : float) -> Array:
+	var got : float = 0.0
+	var cost : float = 0.0
+	for c in _sources(sim, e, g):
+		if got >= qty: break
+		var take : float = minf(c.stock[g], qty - got)
+		if take <= 0.0: continue
+		c.stock[g] -= take
+		got += take
+		cost += take * c.price[g]
+	return [got, cost]
 
 # ---------------------------------------------------------------- War
 ## Systems of `side` within border range of the enemy's (its front), excluding ones the enemy already occupies.
@@ -97,6 +142,7 @@ static func declare(sim, a, b) -> void:
 	r["trade_treaty"] = false; r["passage"] = false
 	r["stance"] = "embargo"
 	sim.wars.append({"a": a, "b": b, "start": sim.tick_count, "peak_a": a.strength, "peak_b": b.strength})
+	a.wars_started.append(sim.tick_count / 12)
 	sim._event("WAR: %s declares war on %s (strength %d vs %d)" % [a.name, b.name, a.strength, b.strength])
 	sim.on_system_claimed()   # routes change with stances
 
@@ -170,6 +216,11 @@ static func make_peace(sim, w : Dictionary) -> void:
 			winner.known[s] = true
 			ceded.append("%s -> %s" % [s.name, winner.name])
 	sim.wars.erase(w)
+	var gain_a : int = ceded.filter(func(c): return c.ends_with(a.name)).size()
+	var gain_b : int = ceded.size() - gain_a
+	a.systems_taken += gain_a; b.systems_taken += gain_b
+	if gain_a > gain_b: Personality.on_peace(sim, a, b, gain_a)
+	elif gain_b > gain_a: Personality.on_peace(sim, b, a, gain_b)
 	var r : Dictionary = sim._rel(a, b)
 	r["stance"] = "hostile"
 	r["truce_until"] = sim.tick_count / 12 + TRUCE_YEARS

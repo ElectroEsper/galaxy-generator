@@ -4,6 +4,8 @@ extends Node2D
 
 const TICKS_PER_SECOND := 6.0
 const SHIP_SPEED := 160.0   # px / second
+const SIM_BUDGET_MS := 25     # max time spent stepping the sim per frame (it slows down instead of freezing the view)
+const MAX_SHIPS := 300        # ships drawn at once (lanes still record all traffic)
 const GOOD_COLORS : Dictionary = {
 	Goods.ORE: Color(0.75, 0.55, 0.35), Goods.METAL: Color(0.7, 0.8, 0.9),
 	Goods.PARTS: Color(1.0, 0.85, 0.3), Goods.FOOD: Color(0.5, 0.9, 0.45), Goods.WATER: Color(0.4, 0.75, 0.95),
@@ -25,6 +27,20 @@ var lane_heat : Dictionary = {}   # "A-B" -> recent traffic (fades)
 var accum : float = 0.0
 var paused : bool = false
 var speed_mult : float = 1.0
+var show_ships : bool = true
+var show_labels : bool = true
+# The sim runs on its own thread so a slow month never freezes the window. The map (this node) is redrawn only when the
+# main thread can take sim_lock between two months; ships live on their own layer and animate every frame regardless.
+var sim_thread : Thread = null
+var sim_lock : Mutex = Mutex.new()
+var ship_lock : Mutex = Mutex.new()
+var running : bool = true
+var want_draw : bool = false
+var map_locked : bool = false
+var ship_layer : Node2D = null
+var tps_ticks : int = 0
+var tps_time : float = 0.0
+var tps : float = 0.0
 # Territory layer: each empire's systems claim the space around them (nearest claimed system within TERRITORY_RADIUS),
 # rendered to a small image and redrawn only when a system changes hands.
 const TERRITORY_RADIUS := 70.0
@@ -41,12 +57,54 @@ func _ready() -> void:
 	sim.max_corps = 60
 	sim.colonize = true
 	add_child(sim)
+	remove_child(sim)   # set up, then taken out of the scene tree so its own thread may drive it (and emit its signals)
 	sim.shipment_made.connect(_on_shipment)
+	ship_layer = Node2D.new()
+	ship_layer.draw.connect(_draw_ships)
+	add_child(ship_layer)
+	sim_thread = Thread.new()
+	sim_thread.start(_sim_loop)
+
+func _exit_tree() -> void:
+	running = false
+	if sim_thread != null:
+		sim_thread.wait_to_finish()
+	sim.free()
+
+## Sim thread: advances months at the requested pace (TICKS_PER_SECOND x speed), or as fast as it can when months are slow.
+func _sim_loop() -> void:
+	var last : int = Time.get_ticks_usec()
+	var budget : float = 0.0
+	while running:
+		var now : int = Time.get_ticks_usec()
+		var dt : float = (now - last) / 1000000.0
+		last = now
+		if paused:
+			budget = 0.0
+			OS.delay_msec(10)
+			continue
+		budget = minf(budget + dt * TICKS_PER_SECOND * speed_mult, 2.0)   # never build a backlog of more than 2 months
+		if budget < 1.0:
+			OS.delay_msec(2)
+			continue
+		budget -= 1.0
+		sim_lock.lock()
+		sim.step()
+		for k in lane_heat.keys():
+			lane_heat[k] = maxf(0.0, lane_heat[k] - 0.05)
+		sim_lock.unlock()
+		tps_ticks += 1
+		var waited : int = 0
+		while want_draw and waited < 30 and running:   # let the map redraw between months
+			OS.delay_msec(1); waited += 1
 
 func _on_shipment(a : ColonyMarket, b : ColonyMarket, good : int, qty : float) -> void:
 	var s := Ship.new()
 	s.from_pos = a.position; s.to_pos = b.position; s.good = good; s.qty = qty
-	ships.append(s)
+	ship_lock.lock()
+	if show_ships and ships.size() < MAX_SHIPS:
+		ships.append(s)
+	ship_lock.unlock()
 	if a.system == null or b.system == null or a.system == b.system:
 		return
 	var na : String = a.system.name; var nb : String = b.system.name
@@ -59,19 +117,27 @@ func _unhandled_key_input(e : InputEvent) -> void:
 			KEY_SPACE: paused = not paused
 			KEY_UP: speed_mult = minf(speed_mult * 2.0, 16.0)
 			KEY_DOWN: speed_mult = maxf(speed_mult * 0.5, 0.25)
+			KEY_T:
+				show_ships = not show_ships
+				if not show_ships: ships.clear()
+			KEY_L: show_labels = not show_labels
 
 func _process(delta : float) -> void:
+	tps_time += delta
+	if tps_time >= 1.0:
+		tps = tps_ticks / tps_time; tps_ticks = 0; tps_time = 0.0
 	if not paused:
-		accum += delta * TICKS_PER_SECOND * speed_mult
-		while accum >= 1.0:
-			accum -= 1.0
-			sim.step()
-			for k in lane_heat.keys():
-				lane_heat[k] = maxf(0.0, lane_heat[k] - 0.05)
-		for s in ships:
-			s.travelled += SHIP_SPEED * delta * speed_mult
-		ships = ships.filter(func(s): return s.travelled < s.length())
-	queue_redraw()
+		ship_lock.lock()
+		for sh in ships:
+			sh.travelled += SHIP_SPEED * delta * speed_mult
+		ships = ships.filter(func(sh): return sh.travelled < sh.length())
+		ship_lock.unlock()
+	ship_layer.queue_redraw()
+	want_draw = true
+	if not map_locked and sim_lock.try_lock():      # released at the end of _draw (same frame, main thread)
+		map_locked = true
+		want_draw = false
+		queue_redraw()
 
 func _shortage(c : ColonyMarket) -> float:
 	var p : float = (c.price[Goods.FOOD] + c.price[Goods.PARTS]) / (2.0 * ColonyMarket.BASE_PRICE)
@@ -111,6 +177,13 @@ func _rebuild_territory() -> void:
 	mat.set_shader_parameter("count", claimed.size())
 
 func _draw() -> void:
+	if not map_locked:   # a redraw the engine asked for on its own: wait for the sim to finish its month
+		sim_lock.lock()
+	map_locked = false
+	_draw_map()
+	sim_lock.unlock()   # taken in _process (or just above)
+
+func _draw_map() -> void:
 	var font : Font = ThemeDB.fallback_font
 	var markets : Array[ColonyMarket] = sim.markets
 	var sys_pos : Dictionary = {}
@@ -154,14 +227,21 @@ func _draw() -> void:
 		var is_cap : bool = sim.empires.any(func(e): return settled.has(e.capital))
 		draw_arc(sys.position, r, 0.0, TAU, 32, Color(1, 0.9, 0.5, 0.9) if is_cap else Color(1, 1, 1, 0.5), 2.0 if is_cap else 1.2)
 		var label : String = "%s%s  %d/%d  pop %d" % ["Capital system " if is_cap else "", sys.name, settled.size(), sys.bodies.size(), pop]
-		draw_string(font, sys.position + Vector2(-r, -r - 6.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
-	# Ships
-	for s in ships:
-		var dir : Vector2 = (s.to_pos - s.from_pos).normalized()
-		var pos : Vector2 = s.from_pos + dir * s.travelled
-		var size : float = 5.0 + minf(s.qty, 20.0) * 0.25
-		var pts := PackedVector2Array([pos + dir * size * 1.4, pos + dir.rotated(2.5) * size, pos + dir.rotated(-2.5) * size])
-		draw_colored_polygon(pts, GOOD_COLORS[s.good])
+		# War: occupied systems get a thick ring and stripes in the occupier's colour; front systems a dashed red ring
+		if sys.occupier != null:
+			draw_arc(sys.position, r + 4.0, 0.0, TAU, 32, sys.occupier.color, 3.5)
+			for i in range(-2, 3):
+				var o : Vector2 = Vector2(i * r * 0.4, 0.0)
+				draw_line(sys.position + o + Vector2(-r * 0.35, r * 0.6), sys.position + o + Vector2(r * 0.35, -r * 0.6), sys.occupier.color, 2.0)
+		elif sys.at_front and not sim.wars.is_empty():
+			for i in 12:
+				draw_arc(sys.position, r + 4.0, i * TAU / 12.0, i * TAU / 12.0 + TAU / 24.0, 4, Color(1.0, 0.25, 0.2, 0.9), 2.0)
+		if show_labels:
+			draw_string(font, sys.position + Vector2(-r, -r - 6.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
+	# Wars: a red line between the belligerents' capitals
+	for w in sim.wars:
+		if w["a"].capital and w["b"].capital:
+			draw_dashed_line(w["a"].capital.position, w["b"].capital.position, Color(1.0, 0.2, 0.15, 0.8), 2.0, 10.0)
 	# HUD
 	var kinds : Dictionary = {}
 	var cash_total : float = 0.0
@@ -170,7 +250,7 @@ func _draw() -> void:
 		kinds[n] = kinds.get(n, 0) + 1
 		cash_total += k.cash
 	draw_string(font, Vector2(16, 24), "%s (tick %d)   colonies %d (%d systems)   surveyed %d   corps %s   ships in transit %d" % [sim.date_label(), sim.tick_count, markets.size(), GalaxyColonies.systems.filter(func(s): return not s.settled_bodies().is_empty()).size(), sim.frontier.filter(func(c): return c.surveys > 0).size(), kinds, ships.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
-	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f   node = star system (n/m = colonies/bodies), colour: green supplied, red short; gold ring = known deposits" % speed_mult, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
+	draw_string(font, Vector2(16, 44), "[space] pause   [up/down] speed x%.2f (%.1f months/s)   [T] ships  [L] labels   striped = occupied, dashed red = front, gold ring = known deposits" % [speed_mult, tps], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
 	if sim.empires.size() > 1:
 		var ey : float = 84.0
 		for e in sim.empires:
@@ -179,10 +259,29 @@ func _draw() -> void:
 			var pop : float = 0.0
 			for m in own: pop += m.pop
 			draw_rect(Rect2(Vector2(16, ey - 10), Vector2(12, 12)), e.color)
-			draw_string(font, Vector2(34, ey), "%s   %d colonies, %d systems, pop %d, treasury %dk" % [e.name, own.size(), nsys, pop, e.treasury / 1000.0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
+			draw_string(font, Vector2(34, ey), "%s   %d colonies, %d systems, pop %d, treasury %dk   strength %d   [%s]%s" % [e.name, own.size(), nsys, pop, e.treasury / 1000.0, e.strength, Personality.label(e), _war_note(e)], HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
 			ey += 16.0
 	var lx : float = 16.0
 	for g in Goods.ALL:
 		draw_rect(Rect2(Vector2(lx, 52), Vector2(10, 10)), GOOD_COLORS[g])
 		draw_string(font, Vector2(lx + 14, 62), GOOD_NAMES[g], HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
 		lx += 70.0
+
+func _war_note(e) -> String:
+	var foes : Array = []
+	for w in sim.wars:
+		if w["a"] == e: foes.append(w["b"].name)
+		elif w["b"] == e: foes.append(w["a"].name)
+	if foes.is_empty():
+		return ""
+	return "   AT WAR with %s, exhaustion %d" % [", ".join(foes), e.exhaustion]
+
+func _draw_ships() -> void:
+	ship_lock.lock()
+	for sh in ships:
+		var dir : Vector2 = (sh.to_pos - sh.from_pos).normalized()
+		var pos : Vector2 = sh.from_pos + dir * sh.travelled
+		var size : float = 5.0 + minf(sh.qty, 20.0) * 0.25
+		var pts := PackedVector2Array([pos + dir * size * 1.4, pos + dir.rotated(2.5) * size, pos + dir.rotated(-2.5) * size])
+		ship_layer.draw_colored_polygon(pts, GOOD_COLORS[sh.good])
+	ship_lock.unlock()

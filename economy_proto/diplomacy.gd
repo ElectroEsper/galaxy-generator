@@ -13,6 +13,8 @@ const REFUSAL_COOLDOWN := 5          # years before re-proposing to an empire th
 const MAX_DEPTH := 4
 const STRONGER := 1.3                # strength ratio an empire wants before starting a war
 const RIVAL_BORDER := 15           # a border this long with negative opinion is a rivalry worth fighting over
+const HUNGER_RANGE := 180.0       # unclaimed charted systems this close to an empire's own count as free land
+const HUNGER_BORDER := 3           # land-hungry empires covet a neighbour sharing at least this much border
 const WAR_BORDER := 5                # border segments that make a neighbour's systems worth fighting for
 const PEACE_EXHAUSTION := 50.0       # an empire this exhausted wants out
 const PEACE_COOLDOWN := 2            # years between peace offers to the same enemy
@@ -34,8 +36,10 @@ static func _actions(sim, e, others : Array) -> Array:
 		# War
 		acts.append({"name": "arm", "x": x, "cost": 2.0,
 			"pre": {"met:%d" % i: true, "stronger:%d" % i: false, "arming": false}, "eff": {"stronger:%d" % i: true, "arming": true}})
-		acts.append({"name": "declare_war", "x": x, "cost": 4.0,
+		acts.append({"name": "declare_war", "x": x, "cost": 4.0 + 12.0 * (1.0 - Personality.t(e, "aggression")),
 			"pre": {"hostile:%d" % i: true, "stronger:%d" % i: true, "war:%d" % i: false, "tired": false}, "eff": {"war:%d" % i: true}})
+		acts.append({"name": "declare_war", "x": x, "cost": 5.0 + 12.0 * (1.0 - Personality.t(e, "aggression")),     # war of conquest: no grievance needed, only want
+			"pre": {"covet:%d" % i: true, "stronger:%d" % i: true, "war:%d" % i: false, "tired": false}, "eff": {"war:%d" % i: true}})
 		acts.append({"name": "sue_for_peace", "x": x, "cost": 1.0,
 			"pre": {"war:%d" % i: true}, "eff": {"war:%d" % i: false}})
 	return acts
@@ -43,9 +47,12 @@ static func _actions(sim, e, others : Array) -> Array:
 # ---------------------------------------------------------------- World state
 static func _facts(sim, e, others : Array) -> Dictionary:
 	var f : Dictionary = {"cash": e.treasury >= AID_COST * 2.0, "arming": sim.tick_count / 12 < e.arming_until, "tired": e.exhaustion >= 20.0}
+	var hungry : bool = _land_hungry(sim, e)
+	f["hungry"] = hungry
 	for x in others:
 		var r : Dictionary = sim._rel(e, x)
 		var i : int = x.id
+		f["covet:%d" % i] = hungry and r["met"] and r["border"] >= HUNGER_BORDER and sim.tick_count / 12 >= r.get("truce_until", 0)
 		f["met:%d" % i] = r["met"]
 		f["trade:%d" % i] = r["trade_treaty"]
 		f["pass:%d" % i] = r["passage"]
@@ -53,7 +60,8 @@ static func _facts(sim, e, others : Array) -> Dictionary:
 		f["op_good:%d" % i] = r["opinion"] >= OP_GOOD
 		f["reach:%d" % i] = r["opinion"] >= OP_OK - AID_GOODWILL * 0.8   # one gesture can bring them round
 		f["hostile:%d" % i] = r["met"] and sim.tick_count / 12 >= r.get("truce_until", 0) and (r["stance"] == "hostile" or r["stance"] == "embargo" or (r["opinion"] < 0.0 and r["border"] >= RIVAL_BORDER))
-		f["stronger:%d" % i] = e.strength > x.strength * STRONGER
+		f["stronger:%d" % i] = e.strength > x.strength * Personality.attack_ratio(e)
+		f["common_threat:%d" % i] = Threat.common_threat(sim, e, x)
 		f["war:%d" % i] = sim.wars.any(func(w): return (w["a"] == e and w["b"] == x) or (w["a"] == x and w["b"] == e))
 	return f
 
@@ -78,7 +86,7 @@ static func _goals(sim, e, others : Array) -> Array:
 			var p : float = _avg_price(sim, x, g)
 			if p < bp: bp = p; best = x
 		if best != null and not sim._rel(e, best)["trade_treaty"]:
-			goals.append({"name": "secure %s from %s" % [["Ore", "Metal", "Parts", "Food", "Water"][g], best.name], "priority": mine / ColonyMarket.BASE_PRICE, "want": {"trade:%d" % best.id: true}})
+			goals.append({"name": "secure %s from %s" % [["Ore", "Metal", "Parts", "Food", "Water"][g], best.name], "priority": mine / ColonyMarket.BASE_PRICE * Personality.w(e, "mercantile"), "want": {"trade:%d" % best.id: true}})
 	# Reach: a trade partner whose colonies we can't reach because a third empire's territory is in the way.
 	for x in others:
 		var r : Dictionary = sim._rel(e, x)
@@ -95,22 +103,44 @@ static func _goals(sim, e, others : Array) -> Array:
 	for x in others:
 		var r : Dictionary = sim._rel(e, x)
 		if r["met"] and not r["trade_treaty"] and r["opinion"] >= OP_GOOD:
-			goals.append({"name": "open trade with %s" % x.name, "priority": 0.3, "want": {"trade:%d" % x.id: true}})
+			goals.append({"name": "open trade with %s" % x.name, "priority": 0.3 * Personality.w(e, "mercantile"), "want": {"trade:%d" % x.id: true}})
 	# War: end a war going badly; deter a stronger hostile neighbour; seize the border from a weaker hostile one.
 	for x in others:
 		var r : Dictionary = sim._rel(e, x)
 		var at_war : bool = sim.wars.any(func(w): return (w["a"] == e and w["b"] == x) or (w["a"] == x and w["b"] == e))
 		if at_war:
-			if e.exhaustion >= PEACE_EXHAUSTION or e.strength < x.strength * 0.8:
+			if e.exhaustion >= Personality.peace_exhaustion(e) or e.strength < x.strength * 0.8:
 				goals.append({"name": "end the war with %s" % x.name, "priority": 5.0, "want": {"war:%d" % x.id: false}})
 			continue
 		var hostile : bool = r["met"] and (r["stance"] == "hostile" or r["stance"] == "embargo" or (r["opinion"] < 0.0 and r["border"] >= RIVAL_BORDER))
-		if hostile and x.strength > e.strength:
-			goals.append({"name": "deter %s" % x.name, "priority": 1.0 + r["border"] / 10.0, "want": {"stronger:%d" % x.id: true}})
-		if hostile and r["border"] >= WAR_BORDER and sim.tick_count / 12 >= r.get("truce_until", 0) and e.exhaustion < 20.0:
-			goals.append({"name": "seize the border with %s" % x.name, "priority": 0.8 + r["border"] / 15.0, "want": {"war:%d" % x.id: true}})
+		if (hostile or e.threat.get(x.id, 0.0) >= 1.5) and x.strength > e.strength:
+			goals.append({"name": "deter %s" % x.name, "priority": (1.0 + r["border"] / 10.0) * Personality.w(e, "caution"), "want": {"stronger:%d" % x.id: true}})
+		if hostile and Personality.t(e, "aggression") >= 0.25 and r["border"] >= WAR_BORDER and sim.tick_count / 12 >= r.get("truce_until", 0) and e.exhaustion < 20.0:
+			goals.append({"name": "seize the border with %s" % x.name, "priority": (0.8 + r["border"] / 15.0) * Personality.w(e, "aggression"), "want": {"war:%d" % x.id: true}})
+	# Land hunger: nothing left to settle nearby, so take it from the weakest neighbour along a shared border.
+	if _land_hungry(sim, e) and e.exhaustion < 20.0 and Personality.t(e, "aggression") >= 0.25:
+		var best = null
+		for x in sim.empires:
+			if x == e or sim.wars.any(func(w): return w["a"] == e or w["b"] == e): continue
+			var r : Dictionary = sim._rel(e, x)
+			if r["met"] and r["border"] >= HUNGER_BORDER and sim.tick_count / 12 >= r.get("truce_until", 0) and (best == null or x.strength < best.strength):
+				best = x
+		if best != null:
+			goals.append({"name": "expand into %s (no free land left)" % best.name, "priority": 0.9 * Personality.w(e, "expansion") * Personality.w(e, "aggression"), "want": {"war:%d" % best.id: true}})
 	goals.sort_custom(func(a, b): return a["priority"] > b["priority"])
 	return goals
+
+## At least 5 systems, and no unclaimed star system (charted or not) within HUNGER_RANGE of any of e's systems.
+static func _land_hungry(sim, e) -> bool:
+	var mine : Array = sim.all_systems().filter(func(s): return s.owner == e)
+	if mine.size() < 5:
+		return false
+	for s in sim.all_systems():
+		if s.owner == null:
+			for m in mine:
+				if m.position.distance_to(s.position) <= HUNGER_RANGE:
+					return false
+	return true
 
 ## The first other empire whose territory lies between e's capital and x's capital without passage rights.
 static func _blocker(sim, e, x):
@@ -173,6 +203,8 @@ static func _accepts_passage(sim, z, e) -> bool:
 
 # ---------------------------------------------------------------- Yearly turn
 static func yearly(sim) -> void:
+	Threat.yearly(sim)
+	Personality.yearly(sim)
 	for e in sim.empires:
 		_turn(sim, e)
 

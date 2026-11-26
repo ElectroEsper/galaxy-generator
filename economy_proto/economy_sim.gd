@@ -154,6 +154,8 @@ func _setup_colonization() -> void:
 	for i in num_empires:
 		var e := Empire.new(i, "Empire %d" % (i + 1), EMPIRE_COLORS[i % EMPIRE_COLORS.size()])
 		e.capital = capitals[i]
+		if num_empires > 1:
+			Personality.generate(e, rng_seed)
 		home_stars.append(capitals[i].name.get_slice(".", 0))
 		capitals[i].name = "Capital" if num_empires == 1 else "Capital %d" % (i + 1)
 		capitals[i].max_pop = CAPITAL_CEILING
@@ -691,6 +693,7 @@ func _check_claim_jump(c : ColonyMarket, e : Empire) -> void:
 		if c.system.bodies.any(func(b): return b.surveys_by(other) > 0):
 			var r : Dictionary = _rel(e, other)
 			r["incidents"] += 1.0
+			Personality.on_incident(self, other)
 			_event("%s settled %s, which %s had surveyed (incident)" % [e.name, c.system.name, other.name])
 
 ## Monthly: contact, border length, trade, opinion and stance for every pair of empires.
@@ -718,7 +721,9 @@ func _update_relations() -> void:
 			r["month_trade"] = 0.0
 			r["incidents"] *= INCIDENT_DECAY
 			r["goodwill"] *= INCIDENT_DECAY
-			var target : float = TRADE_WEIGHT * log(1.0 + r["trade"]) - BORDER_WEIGHT * border - INCIDENT_PENALTY * r["incidents"] + GOODWILL_WEIGHT * r["goodwill"]
+			var merc : float = (Personality.w(a, "mercantile") + Personality.w(b, "mercantile")) * 0.5
+			var xeno : float = (Personality.w(a, "xenophobia") + Personality.w(b, "xenophobia")) * 0.5
+			var target : float = TRADE_WEIGHT * merc * log(1.0 + r["trade"]) - BORDER_WEIGHT * xeno * border - INCIDENT_PENALTY * r["incidents"] + GOODWILL_WEIGHT * r["goodwill"]
 			r["opinion"] = clampf(r["opinion"] + OPINION_RATE * (target - r["opinion"]), -100.0, 100.0)
 			if wars.any(func(w): return (w["a"] == a and w["b"] == b) or (w["a"] == b and w["b"] == a)):
 				continue                         # at war: stance stays "embargo" until peace
@@ -860,7 +865,7 @@ func relation_rows() -> Array:
 	return rows
 
 ## Per-empire metrics, one row per empire (see EMPIRE_HEADER).
-const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps,customs,strength,exhaustion,mil_spent,occupied_by_enemy,at_war"
+const EMPIRE_HEADER := "tick,empire,colonies,systems,pop,facilities_here,known_systems,surveyed,survey_ships,treasury,tax_collected,state_colonies,sector_events,corps,customs,strength,exhaustion,mil_spent,occupied_by_enemy,at_war,personality,target_strength,main_threat,max_threat"
 func empire_rows() -> Array:
 	var rows : Array = []
 	for e in empires:
@@ -878,7 +883,7 @@ func empire_rows() -> Array:
 			if k.empire == e:
 				nc += 1
 				if k.kind == Corporation.Kind.SURVEYOR: sships += 1 + k.ships
-		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d,%.0f,%.0f,%.1f,%.0f,%d,%d" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc, e.customs_collected, e.strength, e.exhaustion, e.mil_spent, GalaxyColonies.systems.filter(func(x): return x.owner == e and x.occupier != null).size(), 1 if wars.any(func(w): return w["a"] == e or w["b"] == e) else 0])
+		rows.append("%d,%d,%d,%d,%.0f,%d,%d,%d,%d,%.0f,%.0f,%d,%d,%d,%.0f,%.0f,%.1f,%.0f,%d,%d,%s,%.0f,%d,%.2f" % [tick_count, e.id, own.size(), sys.size(), pop, fac, e.known.size(), surveyed, sships, e.treasury, e.tax_collected, e.state_colonies, e.sector_events, nc, e.customs_collected, e.strength, e.exhaustion, e.mil_spent, GalaxyColonies.systems.filter(func(x): return x.owner == e and x.occupier != null).size(), 1 if wars.any(func(w): return w["a"] == e or w["b"] == e) else 0, Personality.label(e).replace(",", ";"), e.target_strength, e.main_threat + 1, e.max_threat])
 	return rows
 
 ## One row of time-series metrics (see METRIC_HEADER).
